@@ -1,0 +1,50 @@
+# VLA: VLM-conditioned action prediction (adapted from starVLA VLM4A).
+#   oftp:  QwenOFT   — action-token hidden states -> MLP L1 regression (no diffusion)
+#   pi:    QwenPI    — layer-wise cross-DiT flow matching (DiT depth = VLM layers, width = VLM hidden)
+#   groot: QwenGR00T — single-layer VLM hidden -> DiT-B flow matching
+# NOTE: switching ``variant`` requires matching ``action_head.action_model_type``
+# (oftp -> MLP, pi -> LayerwiseFM, groot -> DiT-B / DiT-L); a mismatch fail-fasts
+# at construction.
+
+defaults:
+  - vlm_backbone: qwen3_vl_vla
+  - _self_
+
+# The VLM is frozen during training (head-only finetuning, starVLA setting).
+# For VLM cotraining, remove this entry.
+freeze:
+  - vlm_backbone
+
+architecture:
+  framework: vla
+  variant: oftp             # oftp | pi | groot
+
+  # Deployment-side obs resize (H, W); null = keep the dataloader resolution.
+  obs_image_size: null
+  # Batch-repeat factor for the flow-matching loss (pi: 2, groot: 8, oftp: 1).
+  repeated_diffusion_steps: 1
+
+  # ── Action head (all head params live under this block) ─────────────────────
+  # Shape fields bound to the VLM (input dim / DiT depth / cross_attention_dim)
+  # are auto-aligned to the loaded VLM at runtime — no manual sync needed.
+  action_head:
+    action_model_type: MLP   # MLP (oftp) | DiT-B / DiT-L (groot) | LayerwiseFM (pi)
+    action_dim: 20           # DoF of the robot action (robotwin eef = 20, joint = 14)
+    action_horizon: 8        # Future steps per chunk (pi default 16)
+    state_dim: 20            # Proprio width into the head (0 disables the state encoder;
+                             # oftp ignores it — state rides the instruction)
+    hidden_size: 1024        # Head MLP width (FM heads)
+    num_inference_timesteps: 4
+    num_target_vision_tokens: 32
+    add_pos_embed: true
+    max_seq_len: 1024
+    noise_beta_alpha: 1.5
+    noise_beta_beta: 1.0
+    noise_s: 0.999
+    num_timestep_buckets: 1000
+    diffusion_model_cfg:     # DiT kwargs (FM heads)
+      dropout: 0.2
+      final_dropout: true
+      interleave_self_attention: true
+      norm_type: ada_norm
+      positional_embeddings: null

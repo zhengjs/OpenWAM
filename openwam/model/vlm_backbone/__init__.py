@@ -18,6 +18,7 @@ from openwam.model.vlm_backbone.registry import (
 __all__ = [
     "VlmBackbone",
     "Qwen3VLBackbone",
+    "Qwen3VLVLABackbone",
     "build_vlm_backbone",
     "register_vlm_backbone",
     "_VLM_BACKBONE_REGISTRY",
@@ -26,5 +27,7 @@ __all__ = [
 # Built-in registration (at the bottom so the implementation imports only from
 # base/registry, with no circular dependency).
 from openwam.model.vlm_backbone.qwen3_vl_backbone import Qwen3VLBackbone  # noqa: E402
+from openwam.model.vlm_backbone.qwen3_vl_vla_backbone import Qwen3VLVLABackbone  # noqa: E402
 
 register_vlm_backbone("qwen3_vl_2b")(Qwen3VLBackbone)
+register_vlm_backbone("qwen3_vl_vla")(Qwen3VLVLABackbone)

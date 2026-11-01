@@ -1,0 +1,9 @@
+name: qwen3_vl_vla
+# Qwen3-VL VLA backbone (cfg.model.vlm_backbone.*); consumed by the vla family
+# (vla_qwen_oft / vla_qwen_pi / vla_qwen_groot). Prompts are built through the
+# full chat template with per-sample multi-view images. QwenOFT needs the
+# *-Action checkpoint (its action token ships in that tokenizer).
+checkpoint_path: /path/to/Qwen3-VL-4B-Instruct  # [Required] QwenOFT: use Qwen3-VL-*-Instruct-Action
+load_pretrained: true   # false = random-init (ablations / CPU smoke tests)
+padding_side: left      # left padding for batched chat inputs
+attn_implementation: sdpa  # sdpa | flash_attention_2 | eager

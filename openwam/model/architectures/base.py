@@ -1,6 +1,11 @@
-"""Abstract base class for WAM (World-Action Model) architectures.
+"""Abstract base classes for OpenWAM architectures.
 
-Supported architecture families:
+:class:`BaseArchitecture` is the family-agnostic root (config / device /
+checkpoint / freeze / backbones scan) shared by WAM and VLA architectures.
+:class:`BaseWAMArchitecture` extends it with the joint video+action
+denoising contract.
+
+Supported WAM architecture families:
 
 1. **Single System** (`framework=single_system`)
    Action tokens are concatenated to the video DiT sequence and ride
@@ -19,7 +24,9 @@ Supported architecture families:
    the video backbone adapter.
 
 Each architecture composes the backbones it owns and implements its own
-``forward()``.
+``forward()``. VLA architecture families (``vla/``, ``framework=vla``)
+extend :class:`BaseArchitecture` with a VLM-conditioned action-prediction
+contract instead.
 """
 
 import functools
@@ -151,12 +158,23 @@ class ActionState:
     payload: Optional[Any] = None
 
 
-class BaseWAMArchitecture(ABC, nn.Module):
-    """Base class for WAM architecture variants.
+class BaseArchitecture(ABC, nn.Module):
+    """Common root for all architectures (WAM and VLA families).
 
-    Composes a ``video_backbone`` and an ``action_backbone`` plus optional
-    extra backbones. Subclasses instantiate the appropriate action backbone
-    subclass in ``__init__`` and own the complete ``forward()`` control flow.
+    Owns the architecture-agnostic infrastructure shared by every family:
+
+    - config storage and ``_cfg_get`` resolution
+    - device / dtype authority (``set_dtype_device`` dispatches to backbones)
+    - checkpoint save / load (safetensors; VLM weights excluded)
+    - freeze management (``freeze_modules``), scheduler init, deploy assets
+    - ``backbones`` registry: generic scan over the standard backbone slots
+      (``video_backbone`` / ``action_backbone`` / ``vlm_backbone``)
+
+    Family bases extend it with their forward contract:
+
+    - :class:`BaseWAMArchitecture` — joint video+action denoising contract
+    - :class:`BaseVLAArchitecture` (``vla/base_vla.py``) — VLM-conditioned
+      action-prediction contract
 
     Args:
         cfg: Architecture-specific configuration (OmegaConf DictConfig or dict).
@@ -167,8 +185,12 @@ class BaseWAMArchitecture(ABC, nn.Module):
     def __init__(self, cfg=None):
         super().__init__()
         self.cfg = cfg
-        self.video_backbone: Optional["VideoBackbone"] = None
-        self.action_backbone: Optional["AnyActionBackbone"] = None
+        # Standard backbone slots. WAM architectures fill video/action (and
+        # optionally vlm); VLA architectures fill vlm/action. ``backbones``
+        # below scans these slots generically.
+        self.video_backbone: Optional[nn.Module] = None
+        self.action_backbone: Optional[nn.Module] = None
+        self.vlm_backbone: Optional[nn.Module] = None
         self._device = torch.device("cuda")
         self._dtype = torch.bfloat16
 
@@ -185,9 +207,6 @@ class BaseWAMArchitecture(ABC, nn.Module):
         # to normalize raw robot state into the model's training space.
         self.normalizer = None
 
-        if cfg is not None:
-            self._init_video_backbone(cfg)
-
     @staticmethod
     def _cfg_get(cfg, key, default=None):
         if cfg is None:
@@ -195,6 +214,303 @@ class BaseWAMArchitecture(ABC, nn.Module):
         if isinstance(cfg, dict):
             return cfg.get(key, default)
         return getattr(cfg, key, default)
+
+    # --- Backbone composition ---
+
+    @property
+    def backbones(self) -> dict[str, nn.Module]:
+        """All backbone modules owned by this architecture.
+
+        Generic scan over the standard backbone slots; slots left ``None``
+        by a family are skipped. Families with non-standard backbones may
+        override. The returned dict is used by ``init_training_schedulers``,
+        ``set_dtype_device``, ``move_frozen_to_device``, and
+        ``save_assets_for_deployment`` to iterate over all backbones generically.
+        """
+        result = {}
+        for name in ("video_backbone", "action_backbone", "vlm_backbone"):
+            bb = getattr(self, name, None)
+            if bb is not None:
+                result[name] = bb
+        return result
+
+    @property
+    def action_dim(self) -> int:
+        return self.action_backbone.action_dim if self.action_backbone is not None else 0
+
+    # --- Device / dtype (top-level authority) ---
+
+    @property
+    def device(self) -> torch.device:
+        return self._device
+
+    @property
+    def dtype(self) -> torch.dtype:
+        return self._dtype
+
+    def set_dtype_device(self, dtype: torch.dtype, device: torch.device) -> None:
+        """Dispatch to each backbone — they own their own dtype/device handling."""
+        self._dtype = dtype
+        self._device = device
+        proprio_encoder = getattr(self, "proprio_encoder", None)
+        if proprio_encoder is not None:
+            proprio_encoder.to(dtype=dtype, device=device)
+        for bb in self.backbones.values():
+            bb.set_dtype_device(dtype, device)
+
+    # --- Normalizer (deployment) ---
+
+    def attach_normalizer(self, normalizer) -> None:
+        """Attach (or clear) an action normalizer used by ``generate``.
+
+        Deployment paths build the same normalizer used by training from
+        ``normalization_stats.npy``. ``generate`` uses it to return real-scale actions,
+        while server-side proprio preprocessing uses it to normalize raw robot
+        state into the model's training space. Pass ``None`` to clear.
+        """
+        self.normalizer = normalizer
+
+    def normalize_deploy_proprio(self, proprio):
+        """Normalize raw deploy proprio (array-like) into a float32 tensor; ``None`` passes through.
+
+        The denoising loop re-casts to the model device/dtype, so a CPU tensor is fine.
+        """
+        if proprio is None:
+            return None
+
+        import numpy as np
+        import torch
+
+        arr = np.asarray(proprio, dtype=np.float32)
+        normalizer = getattr(self, "normalizer", None)
+        if normalizer is not None:
+            arr = normalizer.normalize(arr)
+        return torch.from_numpy(arr)
+
+    # --- Checkpoint save / load ---
+
+    def save_checkpoint(self, path: str, *, state_dict: dict | None = None) -> None:
+        """Save architecture state to safetensors. VLM params excluded (saved separately).
+
+        ``state_dict`` defaults to ``self.state_dict()`` (deploy export); the
+        trainer passes a gathered state_dict (ZeRO/DDP all-gather) instead.
+        """
+        from safetensors.torch import save_file
+
+        if state_dict is None:
+            state_dict = self.state_dict()
+        state_dict = _exclude_vlm_from_state_dict(state_dict)
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        save_file(state_dict, path)
+
+    def load_checkpoint(self, path: str, strict: bool = True) -> None:
+        """Load architecture state from a safetensors checkpoint.
+
+        VLM backbone weights are not stored in the safetensors file (they
+        are saved as a separate directory). When a VLM backbone is present,
+        missing ``vlm_backbone.*`` keys are tolerated; unexpected or missing
+        non-VLM keys still raise under ``strict=True``.
+
+        Meta-device sub-modules (self-contained deploy empty shells built
+        via ``from_empty`` / ``init_empty_weights``) need
+        ``load_state_dict(..., assign=True)`` — the default in-place copy is
+        a silent no-op against meta tensors and leaves the shells
+        unpopulated. ``assign=True`` rebinds the parameter slot to the
+        safetensors tensor instead. We only flip the flag when meta params
+        actually exist so the training-resume path (real-device params,
+        in-place copy preserves identity) is unchanged.
+        """
+        from safetensors.torch import load_file
+
+        state_dict = load_file(path)
+        has_vlm = getattr(self, "vlm_backbone", None) is not None
+        has_meta = any(p.device.type == "meta" for p in self.parameters())
+        missing, unexpected = self.load_state_dict(state_dict, strict=False, assign=has_meta)
+        if strict and not has_vlm:
+            if missing or unexpected:
+                raise RuntimeError(f"Strict load failed: missing={missing}, unexpected={unexpected}")
+        elif strict and has_vlm:
+            non_vlm_missing = [k for k in missing if not k.startswith(VLM_STATE_DICT_PREFIX)]
+            if non_vlm_missing or unexpected:
+                raise RuntimeError(
+                    f"Strict load failed (VLM keys excluded): missing={non_vlm_missing}, unexpected={unexpected}"
+                )
+
+    # --- Training: module management ---
+
+    def init_training_schedulers(self, num_timesteps: int = 1000) -> None:
+        """Initialize all backbone schedulers for training.
+
+        Single source of truth for each stream's α-shift:
+        ``video_backbone.shift_video`` and ``action_backbone.shift_action``.
+        The same properties are read by the deploy schedule at inference time,
+        so the discrete training sigma buffer and the inference denoising
+        trajectory are sampled from the same shifted schedule — train/inference
+        cannot drift, and the shift is owned by the checkpoint config (not a
+        separate deploy-time knob).
+
+        ``shift is None`` (the default for configs without an explicit override)
+        falls back to each scheduler's template default (Wan/action = 5.0),
+        i.e. bit-identical pre-shift behavior.
+
+        Backbones without a ``scheduler`` attribute (e.g. VLA action heads or
+        VLM feature extractors) are skipped, so this is safe to call on every
+        architecture family.
+        """
+        # ``getattr`` (rather than direct attribute access) so test doubles
+        # / mocks that don't carry the shift property still work — they fall
+        # back to the scheduler's template default, matching the production
+        # no-override path.
+        for name, bb in self.backbones.items():
+            if not hasattr(bb, "scheduler"):
+                continue
+            kwargs = {"training": True}
+            shift = getattr(bb, "shift_video" if name == "video_backbone" else "shift_action", None)
+            if shift is not None:
+                kwargs["shift"] = float(shift)
+            bb.scheduler.set_timesteps(num_timesteps, **kwargs)
+
+    def freeze_modules(self, names: list[str]) -> list[str]:
+        """Freeze named sub-modules by dotted path. Returns actually frozen names.
+
+        Single-point freeze API. Two effects per frozen submodule:
+
+        1. ``module.requires_grad_(False)`` — optimizer cannot update its params.
+        2. ``module.forward`` is wrapped in ``torch.no_grad`` so the frozen
+           subtree never saves activations for backward. This is the full
+           semantic of "freeze" — neither the trainer nor any backbone needs to
+           inspect freeze status separately.
+
+        For text_encoder / vae, which are already called under the
+        ``@torch.no_grad()`` ``prepare_inputs`` decorator, the wrapper is a
+        no-op (nested ``no_grad``). For modules called inside the training
+        forward graph (e.g. tri_system's frozen Qwen3-VL backbone), the
+        wrapper is what actually saves activation memory.
+
+        Uses ``nn.Module.get_submodule()`` so dotted paths like
+        ``video_backbone.text_encoder`` work naturally; unknown names
+        are silently skipped, so a freeze list mentioning modules absent on a
+        given architecture (e.g. ``vlm_backbone.vlm_model`` on dual_system)
+        is harmless.
+        """
+        frozen = []
+        for name in names:
+            try:
+                module = self.get_submodule(name)
+            except (AttributeError, KeyError):
+                module = None
+            if module is not None:
+                module.requires_grad_(False)
+                # Set eval mode on the frozen subtree. Use modules() instead
+                # of .eval() to avoid infinite recursion when a submodule has
+                # self-referential aliases (e.g. HF model.model = self).
+                for sub in module.modules():
+                    sub.training = False
+                _wrap_forward_in_no_grad(module)
+                frozen.append(name)
+        return frozen
+
+    def get_trainable_modules(self, freeze_list: list[str] = ()) -> dict[str, nn.Module]:
+        """Return top-level trainable sub-modules.
+
+        Walks ``self.named_children()`` and returns modules that have at
+        least one parameter with ``requires_grad=True``, excluding those
+        in *freeze_list*. Used by ``optimizer_groups.build_trainable_parameters``
+        to source the param groups for the optimizer.
+        """
+        result = {}
+        freeze_set = set(freeze_list)
+        for name, mod in self.named_children():
+            if name in freeze_set:
+                continue
+            if any(p.requires_grad for p in mod.parameters()):
+                result[name] = mod
+        return result
+
+    def move_frozen_to_device(self, device: torch.device, names: tuple[str, ...] = ("text_encoder", "vae")) -> None:
+        """Move named frozen modules to device.
+
+        Searches via ``get_submodule`` on self first, then on each backbone.
+        """
+        for name in names:
+            mod = None
+            try:
+                mod = self.get_submodule(name)
+            except (AttributeError, KeyError):
+                pass
+            if mod is None:
+                for bb in self.backbones.values():
+                    found = None
+                    try:
+                        found = bb.get_submodule(name)
+                    except (AttributeError, KeyError):
+                        found = None
+                    if found is not None:
+                        mod = found
+                        break
+            if mod is not None:
+                mod.to(device=device)
+
+    def save_assets_for_deployment(self, output_dir: str, cfg) -> None:
+        """Make the checkpoint directory self-contained for deploy.
+
+        One entry the trainer calls once per checkpoint save, BEFORE
+        ``save_config`` writes ``config.yaml``. Each backbone's
+        :meth:`VideoBackbone.save_deploy_assets` merges its component/tokenizer
+        reconstruction specs into ``cfg`` (so deploy rebuilds the module
+        skeletons from ``config.yaml`` without the training-time ``model_path``)
+        and copies its artifact files (tokenizer / processor) into ``output_dir``.
+        Every backbone base declares the hook (default no-op), so no probing here.
+        """
+        for bb in self.backbones.values():
+            bb.save_deploy_assets(output_dir, cfg)
+
+    def set_training_runtime(
+        self,
+        *,
+        use_gradient_checkpointing: bool = False,
+        use_gradient_checkpointing_offload: bool = False,
+        max_timestep_boundary: float = 1.0,
+        min_timestep_boundary: float = 0.0,
+    ) -> None:
+        """Set forward-time training flags consumed by ``prepare_inputs``.
+
+        Trainers call this once during construction. Keeping these on the
+        architecture keeps ``prepare_inputs(batch)`` self-contained — the
+        trainer no longer needs to thread these flags through every loss call.
+        """
+        self._use_gradient_checkpointing = bool(use_gradient_checkpointing)
+        self._use_gradient_checkpointing_offload = bool(use_gradient_checkpointing_offload)
+        self._max_timestep_boundary = float(max_timestep_boundary)
+        self._min_timestep_boundary = float(min_timestep_boundary)
+
+
+class BaseWAMArchitecture(BaseArchitecture):
+    """Base class for WAM architecture variants.
+
+    Composes a ``video_backbone`` and an ``action_backbone`` plus optional
+    extra backbones. Subclasses instantiate the appropriate action backbone
+    subclass in ``__init__`` and own the complete ``forward()`` control flow.
+
+    Inherits the family-agnostic infrastructure (config / device / dtype /
+    checkpoint / freeze / backbones scan) from :class:`BaseArchitecture` and
+    adds the WAM-specific video-backbone wiring, the joint denoising
+    ``forward`` contract, and ``compute_loss`` / ``prepare_inputs`` /
+    ``generate``.
+
+    Args:
+        cfg: Architecture-specific configuration (OmegaConf DictConfig or dict).
+    """
+
+    # --- Construction & config resolution ---
+
+    def __init__(self, cfg=None):
+        super().__init__(cfg)
+        self.video_backbone: Optional["VideoBackbone"] = None
+        self.action_backbone: Optional["AnyActionBackbone"] = None
+
+        if cfg is not None:
+            self._init_video_backbone(cfg)
 
     def _init_video_backbone(self, cfg):
         """Build video backbone from config.
@@ -444,25 +760,6 @@ class BaseWAMArchitecture(ABC, nn.Module):
             raise ValueError("video_dim must be specified in config or inferred from video_backbone")
         return dim
 
-    # --- Backbone composition ---
-
-    @property
-    def backbones(self) -> dict[str, nn.Module]:
-        """All backbone modules owned by this architecture.
-
-        Subclasses with additional backbones (e.g. TriSystem with a VLM
-        backbone) should override this to include them. The returned dict
-        is used by ``init_training_schedulers``, ``set_dtype_device``,
-        ``move_frozen_to_device``, and ``save_assets_for_deployment`` to iterate
-        over all backbones generically.
-        """
-        result = {}
-        if self.video_backbone is not None:
-            result["video_backbone"] = self.video_backbone
-        if self.action_backbone is not None:
-            result["action_backbone"] = self.action_backbone
-        return result
-
     # --- Action-side properties (delegate to action_backbone) ---
 
     @property
@@ -486,10 +783,6 @@ class BaseWAMArchitecture(ABC, nn.Module):
         internals (the layering boundary: only the architecture talks to backbones)."""
         vb = self.video_backbone
         return vb.external_encoder if vb is not None else None
-
-    @property
-    def action_dim(self) -> int:
-        return self.action_backbone.action_dim if self.action_backbone is not None else 0
 
     @property
     def bridge_layers(self) -> tuple:
@@ -611,229 +904,6 @@ class BaseWAMArchitecture(ABC, nn.Module):
         # Keep the original text seq_lens and make context_mask authoritative.
         return updated
 
-    # --- Device / dtype (top-level authority) ---
-
-    @property
-    def device(self) -> torch.device:
-        return self._device
-
-    @property
-    def dtype(self) -> torch.dtype:
-        return self._dtype
-
-    def set_dtype_device(self, dtype: torch.dtype, device: torch.device) -> None:
-        """Dispatch to each backbone — they own their own dtype/device handling."""
-        self._dtype = dtype
-        self._device = device
-        proprio_encoder = getattr(self, "proprio_encoder", None)
-        if proprio_encoder is not None:
-            proprio_encoder.to(dtype=dtype, device=device)
-        for bb in self.backbones.values():
-            bb.set_dtype_device(dtype, device)
-
-    # --- Normalizer (deployment) ---
-
-    def attach_normalizer(self, normalizer) -> None:
-        """Attach (or clear) an action normalizer used by ``generate``.
-
-        Deployment paths build the same normalizer used by training from
-        ``normalization_stats.npy``. ``generate`` uses it to return real-scale actions,
-        while server-side proprio preprocessing uses it to normalize raw robot
-        state into the model's training space. Pass ``None`` to clear.
-        """
-        self.normalizer = normalizer
-
-    def normalize_deploy_proprio(self, proprio):
-        """Normalize raw deploy proprio (array-like) into a float32 tensor; ``None`` passes through.
-
-        The denoising loop re-casts to the model device/dtype, so a CPU tensor is fine.
-        """
-        if proprio is None:
-            return None
-
-        import numpy as np
-        import torch
-
-        arr = np.asarray(proprio, dtype=np.float32)
-        normalizer = getattr(self, "normalizer", None)
-        if normalizer is not None:
-            arr = normalizer.normalize(arr)
-        return torch.from_numpy(arr)
-
-    # --- Checkpoint save / load ---
-
-    def save_checkpoint(self, path: str, *, state_dict: dict | None = None) -> None:
-        """Save architecture state to safetensors. VLM params excluded (saved separately).
-
-        ``state_dict`` defaults to ``self.state_dict()`` (deploy export); the
-        trainer passes a gathered state_dict (ZeRO/DDP all-gather) instead.
-        """
-        from safetensors.torch import save_file
-
-        if state_dict is None:
-            state_dict = self.state_dict()
-        state_dict = _exclude_vlm_from_state_dict(state_dict)
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        save_file(state_dict, path)
-
-    def load_checkpoint(self, path: str, strict: bool = True) -> None:
-        """Load architecture state from a safetensors checkpoint.
-
-        VLM backbone weights are not stored in the safetensors file (they
-        are saved as a separate directory). When a VLM backbone is present,
-        missing ``vlm_backbone.*`` keys are tolerated; unexpected or missing
-        non-VLM keys still raise under ``strict=True``.
-
-        Meta-device sub-modules (self-contained deploy empty shells built
-        via ``from_empty`` / ``init_empty_weights``) need
-        ``load_state_dict(..., assign=True)`` — the default in-place copy is
-        a silent no-op against meta tensors and leaves the shells
-        unpopulated. ``assign=True`` rebinds the parameter slot to the
-        safetensors tensor instead. We only flip the flag when meta params
-        actually exist so the training-resume path (real-device params,
-        in-place copy preserves identity) is unchanged.
-        """
-        from safetensors.torch import load_file
-
-        state_dict = load_file(path)
-        has_vlm = getattr(self, "vlm_backbone", None) is not None
-        has_meta = any(p.device.type == "meta" for p in self.parameters())
-        missing, unexpected = self.load_state_dict(state_dict, strict=False, assign=has_meta)
-        if strict and not has_vlm:
-            if missing or unexpected:
-                raise RuntimeError(f"Strict load failed: missing={missing}, unexpected={unexpected}")
-        elif strict and has_vlm:
-            non_vlm_missing = [k for k in missing if not k.startswith(VLM_STATE_DICT_PREFIX)]
-            if non_vlm_missing or unexpected:
-                raise RuntimeError(
-                    f"Strict load failed (VLM keys excluded): missing={non_vlm_missing}, unexpected={unexpected}"
-                )
-
-    # --- Training: module management ---
-
-    def init_training_schedulers(self, num_timesteps: int = 1000) -> None:
-        """Initialize all backbone schedulers for training.
-
-        Single source of truth for each stream's α-shift:
-        ``video_backbone.shift_video`` and ``action_backbone.shift_action``.
-        The same properties are read by the deploy schedule at inference time,
-        so the discrete training sigma buffer and the inference denoising
-        trajectory are sampled from the same shifted schedule — train/inference
-        cannot drift, and the shift is owned by the checkpoint config (not a
-        separate deploy-time knob).
-
-        ``shift is None`` (the default for configs without an explicit override)
-        falls back to each scheduler's template default (Wan/action = 5.0),
-        i.e. bit-identical pre-shift behavior.
-        """
-        # ``getattr`` (rather than direct attribute access) so test doubles
-        # / mocks that don't carry the shift property still work — they fall
-        # back to the scheduler's template default, matching the production
-        # no-override path.
-        for name, bb in self.backbones.items():
-            if not hasattr(bb, "scheduler"):
-                continue
-            kwargs = {"training": True}
-            shift = getattr(bb, "shift_video" if name == "video_backbone" else "shift_action", None)
-            if shift is not None:
-                kwargs["shift"] = float(shift)
-            bb.scheduler.set_timesteps(num_timesteps, **kwargs)
-
-    def freeze_modules(self, names: list[str]) -> list[str]:
-        """Freeze named sub-modules by dotted path. Returns actually frozen names.
-
-        Single-point freeze API. Two effects per frozen submodule:
-
-        1. ``module.requires_grad_(False)`` — optimizer cannot update its params.
-        2. ``module.forward`` is wrapped in ``torch.no_grad`` so the frozen
-           subtree never saves activations for backward. This is the full
-           semantic of "freeze" — neither the trainer nor any backbone needs to
-           inspect freeze status separately.
-
-        For text_encoder / vae, which are already called under the
-        ``@torch.no_grad()`` ``prepare_inputs`` decorator, the wrapper is a
-        no-op (nested ``no_grad``). For modules called inside the training
-        forward graph (e.g. tri_system's frozen Qwen3-VL backbone), the
-        wrapper is what actually saves activation memory.
-
-        Uses ``nn.Module.get_submodule()`` so dotted paths like
-        ``video_backbone.text_encoder`` work naturally; unknown names
-        are silently skipped, so a freeze list mentioning modules absent on a
-        given architecture (e.g. ``vlm_backbone.vlm_model`` on dual_system)
-        is harmless.
-        """
-        frozen = []
-        for name in names:
-            try:
-                module = self.get_submodule(name)
-            except (AttributeError, KeyError):
-                module = None
-            if module is not None:
-                module.requires_grad_(False)
-                # Set eval mode on the frozen subtree. Use modules() instead
-                # of .eval() to avoid infinite recursion when a submodule has
-                # self-referential aliases (e.g. HF model.model = self).
-                for sub in module.modules():
-                    sub.training = False
-                _wrap_forward_in_no_grad(module)
-                frozen.append(name)
-        return frozen
-
-    def get_trainable_modules(self, freeze_list: list[str] = ()) -> dict[str, nn.Module]:
-        """Return top-level trainable sub-modules.
-
-        Walks ``self.named_children()`` and returns modules that have at
-        least one parameter with ``requires_grad=True``, excluding those
-        in *freeze_list*. Used by ``optimizer_groups.build_trainable_parameters``
-        to source the param groups for the optimizer.
-        """
-        result = {}
-        freeze_set = set(freeze_list)
-        for name, mod in self.named_children():
-            if name in freeze_set:
-                continue
-            if any(p.requires_grad for p in mod.parameters()):
-                result[name] = mod
-        return result
-
-    def move_frozen_to_device(self, device: torch.device, names: tuple[str, ...] = ("text_encoder", "vae")) -> None:
-        """Move named frozen modules to device.
-
-        Searches via ``get_submodule`` on self first, then on each backbone.
-        """
-        for name in names:
-            mod = None
-            try:
-                mod = self.get_submodule(name)
-            except (AttributeError, KeyError):
-                pass
-            if mod is None:
-                for bb in self.backbones.values():
-                    found = None
-                    try:
-                        found = bb.get_submodule(name)
-                    except (AttributeError, KeyError):
-                        found = None
-                    if found is not None:
-                        mod = found
-                        break
-            if mod is not None:
-                mod.to(device=device)
-
-    def save_assets_for_deployment(self, output_dir: str, cfg) -> None:
-        """Make the checkpoint directory self-contained for deploy.
-
-        One entry the trainer calls once per checkpoint save, BEFORE
-        ``save_config`` writes ``config.yaml``. Each backbone's
-        :meth:`VideoBackbone.save_deploy_assets` merges its component/tokenizer
-        reconstruction specs into ``cfg`` (so deploy rebuilds the module
-        skeletons from ``config.yaml`` without the training-time ``model_path``)
-        and copies its artifact files (tokenizer / processor) into ``output_dir``.
-        Every backbone base declares the hook (default no-op), so no probing here.
-        """
-        for bb in self.backbones.values():
-            bb.save_deploy_assets(output_dir, cfg)
-
     # --- Training: preprocessing ---
 
     @torch.no_grad()
@@ -844,25 +914,6 @@ class BaseWAMArchitecture(ABC, nn.Module):
         (trainer) should call this instead of touching video_backbone directly.
         """
         return self.video_backbone.preprocess_input_for_train(**kwargs)
-
-    def set_training_runtime(
-        self,
-        *,
-        use_gradient_checkpointing: bool = False,
-        use_gradient_checkpointing_offload: bool = False,
-        max_timestep_boundary: float = 1.0,
-        min_timestep_boundary: float = 0.0,
-    ) -> None:
-        """Set forward-time training flags consumed by ``prepare_inputs``.
-
-        Trainers call this once during construction. Keeping these on the
-        architecture keeps ``prepare_inputs(batch)`` self-contained — the
-        trainer no longer needs to thread these flags through every loss call.
-        """
-        self._use_gradient_checkpointing = bool(use_gradient_checkpointing)
-        self._use_gradient_checkpointing_offload = bool(use_gradient_checkpointing_offload)
-        self._max_timestep_boundary = float(max_timestep_boundary)
-        self._min_timestep_boundary = float(min_timestep_boundary)
 
     @torch.no_grad()
     def prepare_inputs(self, batch: list[dict]) -> dict:

@@ -18,6 +18,13 @@ from openwam.model.action_backbone.shared_action_backbone import (
     SharedMoEActionBackbone,
     SharedVanillaActionBackbone,
 )
+from openwam.model.action_backbone.vla_heads import (
+    FlowMatchingActionHead,
+    L1RegressionActionHead,
+    LayerwiseFlowMatchingActionHead,
+    VLAActionHead,
+    build_vla_action_head,
+)
 
 __all__ = [
     "ActionDiT",
@@ -26,4 +33,9 @@ __all__ = [
     "SharedActionBackbone",
     "SharedMoEActionBackbone",
     "SharedVanillaActionBackbone",
+    "VLAActionHead",
+    "L1RegressionActionHead",
+    "FlowMatchingActionHead",
+    "LayerwiseFlowMatchingActionHead",
+    "build_vla_action_head",
 ]

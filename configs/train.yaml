@@ -1,6 +1,7 @@
 defaults:
-  - model: dual_system            # [Optional]: dual_system(default), single_system, tri_system
+  - model: dual_system            # [Optional]: dual_system(default), single_system, tri_system, vla
   - dataloader: robotwin          # [Optional]: robotwin(default), mixture (four-source pretraining), ebench, robocasa365, robocasa_gr1, robodojo, vlabench, libero
+                                  #             (vla needs robotwin_vla: raw-width actions + short window)
   - _self_
 
 training:
