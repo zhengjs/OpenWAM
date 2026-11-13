@@ -36,6 +36,7 @@ import os
 import pytest
 import torch
 
+from openwam.model.architectures.dual_system import DualSystemCrossAttnArchitecture
 from tests._assets import asset_path
 from tests.model.video_backbone.cosmos_predict25.test_joint_self_attn import _build_rich_wrapper
 
@@ -241,3 +242,56 @@ def test_joint_cross_attn_forward_on_real_cosmos(stub_reason1):
     assert torch.isfinite(v1).all() and torch.isfinite(a1).all()
     assert torch.allclose(v1, v2, atol=1e-3), "video_pred must not depend on the action input"
     assert not torch.allclose(a1, a2, atol=1e-3), "action_pred must respond to the action input"
+
+
+# ==== from test_backbone_metadata.py ====
+# Tests that architecture __init__ derives video_dim and num_dit_layers from config/backbone.
+
+
+def test_architecture_uses_explicit_video_dim_without_backbone():
+    """Without video_backbone, architecture constructs with explicit video_dim."""
+    cfg = {
+        "framework": "dual_system",
+        "variant": "joint_cross_attn",
+        "action_dim": 14,
+        "dim": 64,
+        "ffn_dim": 256,
+        "num_heads": 4,
+        "video_dim": 128,
+        "bridge_layers": (0, 1),
+    }
+    arch = DualSystemCrossAttnArchitecture(cfg=cfg)
+    assert arch.action_backbone is not None
+    assert arch.video_backbone is None
+
+
+def test_architecture_raises_without_video_dim():
+    """Without video_backbone and without video_dim, architecture raises."""
+    cfg = {
+        "framework": "dual_system",
+        "variant": "joint_cross_attn",
+        "action_dim": 14,
+        "dim": 64,
+        "ffn_dim": 256,
+        "num_heads": 4,
+        "bridge_layers": (0, 1),
+    }
+    with pytest.raises(ValueError, match="video_dim must be specified"):
+        DualSystemCrossAttnArchitecture(cfg=cfg)
+
+
+def test_architecture_derives_bridge_layers_from_backbone_num_layers():
+    """bridge_interval should use video_backbone.num_layers when num_dit_layers not in cfg."""
+    cfg = {
+        "framework": "dual_system",
+        "variant": "joint_cross_attn",
+        "action_dim": 14,
+        "dim": 64,
+        "ffn_dim": 256,
+        "num_heads": 4,
+        "video_dim": 128,
+        "bridge_interval": 5,
+        "num_dit_layers": 20,
+    }
+    arch = DualSystemCrossAttnArchitecture(cfg=cfg)
+    assert arch.bridge_layers == (0, 5, 10, 15)

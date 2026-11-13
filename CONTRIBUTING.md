@@ -33,7 +33,7 @@ after downloading with the repo scripts nothing needs to be set:
 
 ~~~bash
 python scripts/download_assets/download_video_backbone.py --name Wan2.2-TI2V-5B --yes
-pytest -m gpu tests/test_video_backbone_consistency.py
+pytest -m gpu tests/model/video_backbone/wan/models/test_dit.py
 ~~~
 
 To point at weights stored elsewhere, export the matching variable, e.g.

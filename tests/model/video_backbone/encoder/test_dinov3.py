@@ -384,7 +384,7 @@ def test_D11d_dinov3_extract_structural_fields_zero_hidden_does_not_fall_back():
 
 
 # ---------------------------------------------------------------------------
-# DS: optional S-VAE feature reducer (mirrors tests/test_vjepa_svae.py)
+# DS: optional S-VAE feature reducer (mirrors tests/model/video_backbone/encoder/test_svae.py)
 # ---------------------------------------------------------------------------
 
 

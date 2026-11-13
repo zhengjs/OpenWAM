@@ -43,7 +43,7 @@ WAN22_TI2V_5B = asset_path("OPENWAM_WAN22_TI2V_5B")
 class _FakePipe:
     """Minimal duck-typed pipeline for Wan21.
 
-    Mirrors the shortcut in ``tests/test_video_backbone_consistency.py``:
+    Mirrors the shortcut in ``tests/model/video_backbone/wan/models/test_dit.py``:
     only ``dit`` is populated so ``WanVideoBackbone`` can run the block
     loop without a real VAE / text encoder / clip image encoder.
     """

@@ -1112,7 +1112,7 @@ def test_M3c_wan22_vae_encoder_from_skeleton_matches_from_pretrained_topology():
     # ``openwam.model.video_backbone.wan.models.vae.WanVideoVAE38`` etc.
     components_entry = {
         "attr": "vae",
-        "model_class": "tests.test_external_encoder._FakeWanVAEModule",
+        "model_class": "tests.integration.test_external_encoder._FakeWanVAEModule",
         "extra_kwargs": {"z_dim": 16, "upsampling_factor": 8},
     }
     enc_deploy = WanVideoVAEEncoder.from_skeleton(components_entry)
@@ -1158,7 +1158,7 @@ def test_M3d_build_external_encoder_skeleton_picks_vae_entry_from_source():
             },
             {
                 "attr": "vae",
-                "model_class": "tests.test_external_encoder._FakeWanVAEModule",
+                "model_class": "tests.integration.test_external_encoder._FakeWanVAEModule",
                 "extra_kwargs": {"z_dim": 16, "upsampling_factor": 8},
             },
         ],
@@ -1322,7 +1322,7 @@ def test_M3f_train_save_deploy_state_dict_topology_matches():
     # --- "Deploy" side: reconstruct from saved components entry ---
     components_entry = {
         "attr": "vae",
-        "model_class": "tests.test_external_encoder._FakeWanVAEModule",
+        "model_class": "tests.integration.test_external_encoder._FakeWanVAEModule",
         "extra_kwargs": {"z_dim": 16, "upsampling_factor": 8},
     }
     deploy_enc = WanVideoVAEEncoder.from_skeleton(components_entry)
@@ -1400,7 +1400,7 @@ def test_D8_wan22_vae_path_end_to_end_freeze_excludes_encoder_params_from_optimi
     arch = _ArchContainer(backbone)
 
     # 3) Real yaml freeze list (no hand-curation — read the file that ships).
-    repo_root = pathlib.Path(__file__).resolve().parent.parent
+    repo_root = pathlib.Path(__file__).resolve().parents[2]
     yaml_cfg = OmegaConf.load(repo_root / "configs/model/dual_system.yaml")
     freeze_list = list(yaml_cfg.freeze)
     assert "video_backbone.video_encoder" in freeze_list, (

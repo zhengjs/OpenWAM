@@ -4,7 +4,7 @@ import pytest
 import yaml
 from hydra import compose, initialize_config_dir
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_training_does_not_warm_start_from_a_placeholder_by_default():
