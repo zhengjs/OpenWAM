@@ -37,7 +37,7 @@ import pytest
 import torch
 
 from tests._assets import asset_path
-from tests.test_cosmos_predict25_joint_self_attn import _build_rich_wrapper
+from tests.model.video_backbone.cosmos_predict25.test_joint_self_attn import _build_rich_wrapper
 
 COSMOS25_2B = asset_path("OPENWAM_COSMOS25_2B")
 

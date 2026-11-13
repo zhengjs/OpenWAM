@@ -31,7 +31,7 @@ import pytest
 import torch
 import torch.nn as nn
 
-from tests.test_dual_system_idm import _CapturePrepareVideoBackbone, _make_idm_with_video
+from tests.model.architectures.dual_system.test_idm import _CapturePrepareVideoBackbone, _make_idm_with_video
 
 # ---------------------------------------------------------------------------
 # IDM: train (3-branch teacher-forcing) ↔ deploy (Stage-2 video KV cache)
@@ -163,7 +163,7 @@ class _TriStubVideoBackbone(nn.Module):
 
     def __init__(self, dim=24, num_heads=4):
         super().__init__()
-        from tests.test_openwam_trainer import _MockScheduler
+        from tests.train.test_openwam_trainer import _MockScheduler
 
         self.dim = dim
         self.num_heads = num_heads

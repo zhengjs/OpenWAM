@@ -1,8 +1,8 @@
 .PHONY: test test-full tri-system-smoke check compile clean lint format all help
 
 PYTHON ?= python
-CORE_TEST_ARGS ?= tests --ignore=tests/test_tri_system_smoke.py
-TRI_SYSTEM_SMOKE_ARGS ?= tests/test_tri_system_smoke.py
+CORE_TEST_ARGS ?= tests --ignore=tests/integration/test_tri_system_smoke.py
+TRI_SYSTEM_SMOKE_ARGS ?= tests/integration/test_tri_system_smoke.py
 
 help:
 	@echo "make test             - run the core OpenWAM test suite"

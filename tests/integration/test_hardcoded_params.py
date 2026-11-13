@@ -144,7 +144,7 @@ class _FakeNormalizer:
 
 def test_action_decode_repr_then_normalizer():
     """generate() action decode should apply action_repr.decode then normalizer.unnormalize."""
-    from tests.test_openwam_trainer import _make_tiny_arch
+    from tests.train.test_openwam_trainer import _make_tiny_arch
 
     arch = _make_tiny_arch()
 

@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-_DIR = Path(__file__).resolve().parents[1] / "benchmarks" / "robocasa365"
+_DIR = Path(__file__).resolve().parents[2] / "benchmarks" / "robocasa365"
 if str(_DIR) not in sys.path:
     sys.path.insert(0, str(_DIR))
 

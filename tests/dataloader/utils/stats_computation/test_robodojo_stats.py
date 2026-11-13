@@ -25,7 +25,7 @@ from openwam.dataloader.utils.stats_computation.robodojo_stats_computation impor
     iter_episode_eef20,
     main,
 )
-from tests.test_robodojo_dataloader import (
+from tests.dataloader.test_robodojo import (
     expected_raw_eef20,
     formal_data_dir,
     valid_calibration,

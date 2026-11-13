@@ -11,7 +11,7 @@ import torch
 
 def _make_arch():
     """Build a minimal architecture with a mock video backbone for loss tests."""
-    from tests.test_openwam_trainer import _make_tiny_arch
+    from tests.train.test_openwam_trainer import _make_tiny_arch
 
     return _make_tiny_arch()
 

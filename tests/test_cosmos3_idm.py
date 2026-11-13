@@ -212,7 +212,7 @@ def _b2_state_with_padding(net, pad_len=2):
 
 def _idm_driver(net):
     from openwam.model.architectures.dual_system.idm import IDMMoTDriver
-    from tests.test_cosmos3_joint_self_attn import _TinyActionBackbone
+    from tests.model.video_backbone.cosmos3.test_joint_self_attn import _TinyActionBackbone
 
     vb = Cosmos3EdgeVideoBackbone(
         net=net,

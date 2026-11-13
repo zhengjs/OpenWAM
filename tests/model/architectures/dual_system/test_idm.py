@@ -218,7 +218,7 @@ class _CapturePrepareVideoBackbone(nn.Module):
 
     def __init__(self):
         super().__init__()
-        from tests.test_openwam_trainer import _MockScheduler
+        from tests.train.test_openwam_trainer import _MockScheduler
 
         self.scheduler = _MockScheduler()
         self.prepare_timesteps = []

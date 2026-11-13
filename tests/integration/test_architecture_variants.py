@@ -28,7 +28,7 @@ from __future__ import annotations
 import pytest
 import torch
 
-from tests.test_openwam_trainer import (
+from tests.train.test_openwam_trainer import (
     _make_fake_loss_inputs,
     _MockVideoBackbone,
 )

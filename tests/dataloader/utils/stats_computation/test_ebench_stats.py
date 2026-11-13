@@ -39,7 +39,7 @@ from openwam.dataloader.utils.stats_computation.ebench_stats_computation import 
     build_and_save_ebench_stats,
     compute_ebench_stats,
 )
-from tests.dataloader.test_ebench_dataset import EP_LEN, N_EPS, _make_frame_row, make_bucket
+from tests.dataloader.test_ebench import EP_LEN, N_EPS, _make_frame_row, make_bucket
 
 DELTA_KEYS = ebench_mod.EBENCH_ACTION_KEYS
 

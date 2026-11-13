@@ -242,7 +242,7 @@ def test_tail_masks_flow_through_prepare_inputs_and_loss():
     import torch
 
     from openwam.dataloader.robotwin import RoboTwinDataset
-    from tests.test_openwam_trainer import _make_tiny_arch
+    from tests.train.test_openwam_trainer import _make_tiny_arch
 
     class _UnitScheduler:
         def training_weight(self, timestep_ids):

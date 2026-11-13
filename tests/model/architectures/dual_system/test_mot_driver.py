@@ -25,7 +25,7 @@ from openwam.model.architectures.utils.mask_modes import (
     VIDEO_SEES_ACTION,
 )
 from openwam.model.video_backbone.base import BlockLoopState
-from tests.test_openwam_trainer import _MockVideoBackbone
+from tests.train.test_openwam_trainer import _MockVideoBackbone
 
 # ---------------------------------------------------------------------------
 # Helpers

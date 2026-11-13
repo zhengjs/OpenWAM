@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import torch
 
-from tests.test_cosmos_predict25_joint_self_attn import _build_rich_wrapper
+from tests.model.video_backbone.cosmos_predict25.test_joint_self_attn import _build_rich_wrapper
 
 
 def _make_cosmos_idm(num_blocks=2, *, action_dim=3, text_dim=12):

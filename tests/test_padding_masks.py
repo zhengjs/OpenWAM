@@ -37,7 +37,7 @@ def _downsample(video_is_pad):
 
 def _make_arch():
     """Build a minimal architecture with a mock video backbone for loss tests."""
-    from tests.test_openwam_trainer import _make_tiny_arch
+    from tests.train.test_openwam_trainer import _make_tiny_arch
 
     return _make_tiny_arch()
 
@@ -328,7 +328,7 @@ class TestPrepareInputsSkipFirst:
 
     def _make_backbone(self, *, emit_first_frame_latents, needs_skip):
         """Build a tiny mock that controls both signals independently."""
-        from tests.test_openwam_trainer import _MockVideoBackbone
+        from tests.train.test_openwam_trainer import _MockVideoBackbone
 
         class _ConfigurableBackbone(_MockVideoBackbone):
             @property

@@ -17,7 +17,7 @@ from __future__ import annotations
 import torch
 from einops import rearrange
 
-from tests.test_cosmos_predict25_joint_self_attn import _build_rich_wrapper
+from tests.model.video_backbone.cosmos_predict25.test_joint_self_attn import _build_rich_wrapper
 
 
 def _prep(backbone, *, force=True, seed=0, B=1):

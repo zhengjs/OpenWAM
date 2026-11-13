@@ -665,7 +665,7 @@ def test_dual_system_joint_self_attn_pre_post_attn_round_trip():
 def test_dual_system_joint_cross_attn_passes_appended_proprio_context_to_action():
     """cross_attn architecture should pass raw text+proprio context to ActionDiT."""
     from openwam.model import build_architecture
-    from tests.test_openwam_trainer import _MockVideoBackbone
+    from tests.train.test_openwam_trainer import _MockVideoBackbone
 
     cfg = {
         "framework": "dual_system",
@@ -870,7 +870,7 @@ def test_dual_system_joint_self_attn_compile_auto_sets_mot_loop():
     from omegaconf import OmegaConf
 
     from openwam.model import build_architecture
-    from tests.test_openwam_trainer import _MockVideoBackbone
+    from tests.train.test_openwam_trainer import _MockVideoBackbone
 
     cfg = {
         "framework": "dual_system",
@@ -902,7 +902,7 @@ def test_dual_system_idm_compile_auto_sets_action_cache_loop():
     from omegaconf import OmegaConf
 
     from openwam.model import build_architecture
-    from tests.test_openwam_trainer import _MockVideoBackbone
+    from tests.train.test_openwam_trainer import _MockVideoBackbone
 
     cfg = {
         "framework": "dual_system",
@@ -933,7 +933,7 @@ def test_dual_system_idm_compile_auto_sets_action_cache_loop():
 def test_dual_system_idm_action_cache_tensor_loop_matches_eager_full_mask_path():
     from openwam.model import build_architecture
     from openwam.model.video_backbone.base import BlockLoopState
-    from tests.test_openwam_trainer import _MockVideoBackbone
+    from tests.train.test_openwam_trainer import _MockVideoBackbone
 
     cfg = {
         "framework": "dual_system",

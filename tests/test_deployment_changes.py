@@ -532,7 +532,7 @@ class TestJointEngineCompileFlags:
     def test_base_architecture_does_not_broad_compile_backbones(self):
         from omegaconf import OmegaConf
 
-        from tests.test_openwam_trainer import _make_tiny_arch
+        from tests.train.test_openwam_trainer import _make_tiny_arch
 
         arch = _make_tiny_arch()
         cfg = OmegaConf.create(
@@ -550,7 +550,7 @@ class TestJointEngineCompileFlags:
     def test_architecture_auto_compile_respects_disabled_fast_path(self):
         from omegaconf import OmegaConf
 
-        from tests.test_openwam_trainer import _make_tiny_arch
+        from tests.train.test_openwam_trainer import _make_tiny_arch
 
         arch = _make_tiny_arch()
         cfg = OmegaConf.create({"enabled": True, "cross_attn": {"enabled": False}})
