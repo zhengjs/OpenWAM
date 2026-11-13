@@ -79,27 +79,21 @@ def test_unavailable_override_warns_and_falls_back(monkeypatch, caplog):
     assert "not available" in caplog.text
 
 
-def test_available_override_is_honoured(monkeypatch):
-    shared = _set_availability(monkeypatch, {"flash_attention_2", "sage_attention"})
-    monkeypatch.setenv(ENV, "sage_attention")
+@pytest.mark.parametrize(
+    ("available", "env_value", "expected"),
+    [
+        pytest.param({"flash_attention_2", "sage_attention"}, "sage_attention", "sage_attention", id="honoured"),
+        pytest.param({"flash_attention_2"}, "  FLASH_ATTENTION_2  ", "flash_attention_2", id="normalized"),
+        pytest.param(set(), "torch", "torch", id="torch-always-selectable"),
+    ],
+)
+def test_available_override_is_honoured(available, env_value, expected, monkeypatch):
+    """Known + available is honoured: verbatim, .strip().lower()-normalized like the
+    sibling, and plain SDPA ("torch") is selectable even with nothing installed."""
+    shared = _set_availability(monkeypatch, available)
+    monkeypatch.setenv(ENV, env_value)
 
-    assert shared.initialize_attention_priority() == "sage_attention"
-
-
-def test_override_is_normalized(monkeypatch):
-    """Match the sibling, which does .strip().lower() before its membership check."""
-    shared = _set_availability(monkeypatch, {"flash_attention_2"})
-    monkeypatch.setenv(ENV, "  FLASH_ATTENTION_2  ")
-
-    assert shared.initialize_attention_priority() == "flash_attention_2"
-
-
-def test_torch_is_always_selectable(monkeypatch):
-    """Plain SDPA needs no library, so it must be honoured even with nothing installed."""
-    shared = _set_availability(monkeypatch, set())
-    monkeypatch.setenv(ENV, "torch")
-
-    assert shared.initialize_attention_priority() == "torch"
+    assert shared.initialize_attention_priority() == expected
 
 
 def test_without_override_auto_detection_is_unchanged(monkeypatch):

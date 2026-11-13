@@ -409,10 +409,19 @@ def test_prompt_failfast_at_init(tmp_path):
         _make_ds(b, normalize_mode=None, unify_action=False)
 
 
-def test_excluded_episodes_honored(bucket):
-    (bucket / "meta" / "excluded_episodes.json").write_text("[0]")
+@pytest.mark.parametrize(
+    ("excluded_json", "expected_remaining"),
+    [
+        pytest.param("[0]", {1}, id="honored"),
+        pytest.param('{"episode_indices": [1]}', {0}, id="scanner_schema"),
+    ],
+)
+def test_excluded_episodes_honored(bucket, excluded_json, expected_remaining):
+    """Both excluded_episodes.json schemas (plain list and scanner-style dict)
+    must remove the listed episodes from ds._episodes."""
+    (bucket / "meta" / "excluded_episodes.json").write_text(excluded_json)
     ds = _make_ds(bucket, normalize_mode=None, unify_action=False)
-    assert {int(ep["episode_index"]) for ep in ds._episodes} == {1}
+    assert {int(ep["episode_index"]) for ep in ds._episodes} == expected_remaining
 
 
 def test_init_rejects_bad_quaternions(tmp_path):
@@ -512,12 +521,6 @@ def test_retry_jumps_over_long_bad_episode(bucket, monkeypatch):
     sample = ds[0]  # a window of episode 0 -> retried onto episode 1
     assert calls["n"] == 2
     assert sample["action"].shape[-1] == 23
-
-
-def test_excluded_episodes_scanner_schema(bucket):
-    (bucket / "meta" / "excluded_episodes.json").write_text('{"episode_indices": [1]}')
-    ds = _make_ds(bucket, normalize_mode=None, unify_action=False)
-    assert {int(ep["episode_index"]) for ep in ds._episodes} == {0}
 
 
 def test_stats_cache_survives_dataset_move(bucket, tmp_path):

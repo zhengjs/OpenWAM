@@ -91,15 +91,13 @@ def test_multiview_requires_three_camera_layout():
         dec.preprocess({"images": {"head_camera": _jpeg_b64()}, "prompt": "x"})
 
 
-def test_state_any_dim_passes_through():
+@pytest.mark.parametrize("state_dim", [pytest.param(14, id="dim_14"), pytest.param(20, id="dim_20")])
+def test_state_any_dim_passes_through(state_dim):
     # State-dim validation was removed: a state of any width is accepted and flattened.
-    obs = _single_view().preprocess({"images": {"head_camera": _jpeg_b64()}, "prompt": "x", "state": list(range(14))})
-    assert isinstance(obs["state"], np.ndarray) and obs["state"].shape == (14,)
-
-
-def test_state_passthrough():
-    obs = _single_view().preprocess({"images": {"head_camera": _jpeg_b64()}, "prompt": "x", "state": list(range(20))})
-    assert isinstance(obs["state"], np.ndarray) and obs["state"].shape == (20,)
+    obs = _single_view().preprocess(
+        {"images": {"head_camera": _jpeg_b64()}, "prompt": "x", "state": list(range(state_dim))}
+    )
+    assert isinstance(obs["state"], np.ndarray) and obs["state"].shape == (state_dim,)
 
 
 def test_requires_proprio_but_no_state_raises():
@@ -185,22 +183,30 @@ def test_multiview_black_fill_one_wrist_missing():
 # --- Prompt template contract (migrated from test_policy_server_obs.py) ---
 
 
-def test_prompt_wrap_plain_instruction():
-    assert format_prompt_for_inference("pick up the bottle") == (
-        "A video recorded from a robot's point of view executing the following instruction: pick up the bottle"
-    )
-
-
-def test_prompt_wrap_keeps_trailing_period():
-    assert format_prompt_for_inference("pick up the bottle.") == (
-        "A video recorded from a robot's point of view executing the following instruction: pick up the bottle."
-    )
-
-
-def test_prompt_wrap_empty_instruction():
-    assert format_prompt_for_inference("") == (
-        "A video recorded from a robot's point of view executing the following instruction: "
-    )
+@pytest.mark.parametrize(
+    ("prompt", "expected"),
+    [
+        pytest.param(
+            "pick up the bottle",
+            "A video recorded from a robot's point of view executing the following instruction: pick up the bottle",
+            id="plain_instruction",
+        ),
+        pytest.param(
+            "pick up the bottle.",
+            "A video recorded from a robot's point of view executing the following instruction: pick up the bottle.",
+            id="keeps_trailing_period",
+        ),
+        pytest.param(
+            "",
+            "A video recorded from a robot's point of view executing the following instruction: ",
+            id="empty_instruction",
+        ),
+    ],
+)
+def test_prompt_wrap_appends_instruction(prompt, expected):
+    # The template is prepended verbatim; a trailing period in the instruction
+    # is kept and the empty instruction still yields the bare template suffix.
+    assert format_prompt_for_inference(prompt) == expected
 
 
 def test_prompt_wrap_matches_dataset_training_output():

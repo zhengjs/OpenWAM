@@ -83,25 +83,26 @@ def _make_states(
 # ---------------------------------------------------------------------------
 
 
-def test_driver_validates_num_layers():
-    vb = _MockVideoBackbone(dim=32, num_layers=4, num_heads=4)
-    ab = _make_action_dit(dim=32, num_heads=4, num_layers=3)
-    with pytest.raises(ValueError, match="num_layers"):
-        DualSystemMoTDriver(vb, ab)
+@pytest.mark.parametrize(
+    "vb_num_layers, vb_num_heads, ab_dim, ab_num_layers, match",
+    [
+        pytest.param(4, 4, 32, 3, "num_layers", id="validates_num_layers"),
+        pytest.param(2, 8, 32, 2, "num_heads", id="validates_num_heads"),
+        pytest.param(2, 4, 64, 2, "head_dim", id="validates_head_dim"),
+    ],
+)
+def test_driver_validates_geometry_mismatch(vb_num_layers, vb_num_heads, ab_dim, ab_num_layers, match):
+    """Construction-time validation: a vb/ab geometry mismatch must abort with
+    a ValueError naming the mismatched field.
 
-
-def test_driver_validates_num_heads():
-    vb = _MockVideoBackbone(dim=32, num_layers=2, num_heads=8)
-    ab = _make_action_dit(dim=32, num_heads=4, num_layers=2)
-    with pytest.raises(ValueError, match="num_heads"):
-        DualSystemMoTDriver(vb, ab)
-
-
-def test_driver_validates_head_dim():
-    # Different per-head sizes: vb has head_dim=8, ab has head_dim=16.
-    vb = _MockVideoBackbone(dim=32, num_layers=2, num_heads=4)
-    ab = _make_action_dit(dim=64, num_heads=4, num_layers=2)
-    with pytest.raises(ValueError, match="head_dim"):
+    - validates_num_layers: vb has 4 layers, ab has 3.
+    - validates_num_heads: vb has 8 heads, ab has 4.
+    - validates_head_dim: different per-head sizes — vb has head_dim=8
+      (dim=32 / 4 heads), ab has head_dim=16 (dim=64 / 4 heads).
+    """
+    vb = _MockVideoBackbone(dim=32, num_layers=vb_num_layers, num_heads=vb_num_heads)
+    ab = _make_action_dit(dim=ab_dim, num_heads=4, num_layers=ab_num_layers)
+    with pytest.raises(ValueError, match=match):
         DualSystemMoTDriver(vb, ab)
 
 

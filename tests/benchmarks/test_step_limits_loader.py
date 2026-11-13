@@ -44,18 +44,41 @@ def test_comments_only_returns_empty(tmp_path):
     assert _load(_write(tmp_path, body)) == {}
 
 
-def test_non_dict_root_is_rejected(tmp_path, capsys):
-    # A top-level YAML list is not a task_name->int mapping.
-    assert _load(_write(tmp_path, "- foo\n- bar\n")) == {}
-    assert "must be a task_name->int mapping" in capsys.readouterr().out
+@pytest.mark.parametrize(
+    ("body", "expected_msg"),
+    [
+        pytest.param(
+            # A top-level YAML list is not a task_name->int mapping.
+            "- foo\n- bar\n",
+            "must be a task_name->int mapping",
+            id="non_dict_root",
+        ),
+        pytest.param("adjust_bottle: [unclosed\n", "Failed to load step_lim overrides", id="malformed_yaml"),
+    ],
+)
+def test_invalid_root_returns_empty_and_logs(tmp_path, capsys, body, expected_msg):
+    """Fail-silent contract: an unloadable root yields {} plus a logged reason."""
+    assert _load(_write(tmp_path, body)) == {}
+    assert expected_msg in capsys.readouterr().out
 
 
-def test_valid_ints_are_loaded(tmp_path):
-    body = """
-        adjust_bottle: 160
-        open_laptop: 288
-    """
-    assert _load(_write(tmp_path, body)) == {"adjust_bottle": 160, "open_laptop": 288}
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        pytest.param(
+            "adjust_bottle: 160\nopen_laptop: 288\n",
+            {"adjust_bottle": 160, "open_laptop": 288},
+            id="all_valid_ints",
+        ),
+        pytest.param(
+            "good_a: 32\nbad_bool: false\nbad_float: 1.5\ngood_b: 64\n",
+            {"good_a": 32, "good_b": 64},
+            id="mixed_valid_and_invalid",
+        ),
+    ],
+)
+def test_plain_int_mapping_is_loaded(tmp_path, body, expected):
+    assert _load(_write(tmp_path, body)) == expected
 
 
 def test_bool_values_are_rejected(tmp_path, capsys):
@@ -70,38 +93,20 @@ def test_bool_values_are_rejected(tmp_path, capsys):
     assert "must be a plain int" in out
 
 
-def test_float_values_are_rejected(tmp_path, capsys):
-    # ``int(160.9) == 160`` would silently truncate; reject explicitly.
-    body = """
-        adjust_bottle: 160.9
-        open_laptop: 288
-    """
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param(
+            # ``int(160.9) == 160`` would silently truncate; reject explicitly.
+            "adjust_bottle: 160.9\nopen_laptop: 288\n",
+            id="float_rejected",
+        ),
+        pytest.param('adjust_bottle: "160"\nopen_laptop: 288\n', id="string_rejected"),
+    ],
+)
+def test_non_plain_int_values_are_rejected(tmp_path, capsys, body):
     assert _load(_write(tmp_path, body)) == {"open_laptop": 288}
     assert "adjust_bottle" in capsys.readouterr().out
-
-
-def test_string_values_are_rejected(tmp_path, capsys):
-    body = """
-        adjust_bottle: "160"
-        open_laptop: 288
-    """
-    assert _load(_write(tmp_path, body)) == {"open_laptop": 288}
-    assert "adjust_bottle" in capsys.readouterr().out
-
-
-def test_mixed_valid_and_invalid(tmp_path):
-    body = """
-        good_a: 32
-        bad_bool: false
-        bad_float: 1.5
-        good_b: 64
-    """
-    assert _load(_write(tmp_path, body)) == {"good_a": 32, "good_b": 64}
-
-
-def test_malformed_yaml_returns_empty(tmp_path, capsys):
-    assert _load(_write(tmp_path, "adjust_bottle: [unclosed\n")) == {}
-    assert "Failed to load step_lim overrides" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------
@@ -164,17 +169,21 @@ def test_override_logs_once_and_applies_across_episodes(capsys):
     assert out.count("step_lim override: adjust_bottle") == 1
 
 
-def test_no_log_when_upstream_already_matches_override(capsys):
-    # If RoboTwin's upstream step_lim already equals the YAML override, we
-    # should neither rewrite nor log (the !=override short-circuit).
-    env = _FakeTaskEnv("adjust_bottle", step_lim=160)
+@pytest.mark.parametrize(
+    ("task_name", "step_lim"),
+    [
+        pytest.param(
+            # If RoboTwin's upstream step_lim already equals the YAML override, we
+            # should neither rewrite nor log (the !=override short-circuit).
+            "adjust_bottle",
+            160,
+            id="upstream_already_matches",
+        ),
+        pytest.param("unlisted_task", 1000, id="task_not_in_overrides"),
+    ],
+)
+def test_no_log_when_nothing_to_override(capsys, task_name, step_lim):
+    env = _FakeTaskEnv(task_name, step_lim=step_lim)
     _run_override_block(env, {"adjust_bottle": 160})
-    assert env.step_lim == 160
-    assert "step_lim override" not in capsys.readouterr().out
-
-
-def test_no_log_for_task_not_in_overrides(capsys):
-    env = _FakeTaskEnv("unlisted_task", step_lim=1000)
-    _run_override_block(env, {"adjust_bottle": 160})
-    assert env.step_lim == 1000
+    assert env.step_lim == step_lim  # neither rewritten nor logged
     assert "step_lim override" not in capsys.readouterr().out

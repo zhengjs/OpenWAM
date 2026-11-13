@@ -1672,32 +1672,32 @@ def test_V6c_vjepa21_invalid_forward_raises():
         )
 
 
-def test_V6d_vjepa21_video_mode_cond_dups_frame_zero():
-    """``vjepa21_forward="video"``: cond pass dups frame 0 and routes the
-    2-frame clip through the video branch (T=2). Target pass prepends the
-    same dup'd pair to N target frames (T=2+N). Two video-branch forwards
-    total — no image-branch call. The encoder-side avg-pool is invisible
-    in the call_log (it happens after the forwards complete).
+@pytest.mark.parametrize(
+    "mode, expected_cond_t",
+    [
+        pytest.param("video", 2, id="video_dups_frame_zero"),
+        pytest.param("mixed", 1, id="mixed_uses_image_branch"),
+    ],
+)
+def test_V6de_vjepa21_cond_pass_routes_by_forward_mode(mode, expected_cond_t):
+    """``vjepa21_forward`` selects the cond-pass branch; the target pass is shared.
+
+    - video_dups_frame_zero (``vjepa21_forward="video"``): cond pass dups frame 0
+      and routes the 2-frame clip through the video branch (T=2). Target pass
+      prepends the same dup'd pair to N target frames (T=2+N). Two video-branch
+      forwards total — no image-branch call. The encoder-side avg-pool is
+      invisible in the call_log (it happens after the forwards complete).
+    - mixed_uses_image_branch (``vjepa21_forward="mixed"``): cond pass routes
+      frame 0 through the image branch (T=1). Target pass is unchanged — still
+      the prepend-and-drop-then-avg-pool path (T=2+N). One image-branch + one
+      video-branch forward.
     """
-    enc, vit = _build_vjepa_spy_encoder(vjepa21_forward="video")
+    enc, vit = _build_vjepa_spy_encoder(vjepa21_forward=mode)
     # T_pixel=9 → N_target=8, so target-pass clip has T=2+8=10.
     z = enc.batch_encode(torch.randn(1, 3, 9, 32, 32))
     assert z.shape == (1, 8, 3, 2, 2)  # 1 cond + 2 pooled target = 3 latent slices
     ts = [c["T"] for c in vit.call_log]
-    assert ts == [2, 10], f"expected [2, 10] for video mode, got {ts}"
-
-
-def test_V6e_vjepa21_mixed_mode_cond_uses_image_branch():
-    """``vjepa21_forward="mixed"``: cond pass routes frame 0 through the
-    image branch (T=1). Target pass is unchanged — still the prepend-and-
-    drop-then-avg-pool path (T=2+N). One image-branch + one video-branch
-    forward.
-    """
-    enc, vit = _build_vjepa_spy_encoder(vjepa21_forward="mixed")
-    z = enc.batch_encode(torch.randn(1, 3, 9, 32, 32))
-    assert z.shape == (1, 8, 3, 2, 2)
-    ts = [c["T"] for c in vit.call_log]
-    assert ts == [1, 10], f"expected [1, 10] for mixed mode, got {ts}"
+    assert ts == [expected_cond_t, 10], f"expected [{expected_cond_t}, 10] for {mode} mode, got {ts}"
 
 
 def test_V6g_vjepa21_t_pixel_1_honours_forward_mode():

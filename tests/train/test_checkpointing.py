@@ -71,24 +71,45 @@ def test_find_latest_accel_state_none_when_empty(tmp_path):
 # --- compute_resume_position (grad_accum alignment / off-by fix) ---
 
 
-def test_resume_position_grad_accum_1_is_identity():
-    # grad_accum=1: aligned == global_step always (zero regression vs. pre-fix behaviour).
-    assert compute_resume_position(25, 10, 1) == (2, 5, 25)
-
-
-def test_resume_position_floors_skip_and_pulls_back_global_step():
-    # gs=10, bpe=100, grad_accum=4: skip 10 -> 8, aligned 10 -> 8 (no re-train, step matched).
-    assert compute_resume_position(10, 100, 4) == (0, 8, 8)
-
-
-def test_resume_position_alignment_across_epoch():
-    # gs=16, bpe=10, grad_accum=4: start=1, skip 6 -> 4, aligned = 1*10 + 4 = 14.
-    assert compute_resume_position(16, 10, 4) == (1, 4, 14)
-
-
-def test_resume_position_already_aligned_unchanged():
-    # gs=12, bpe=100, grad_accum=4: skip 12 already a multiple of 4 -> unchanged.
-    assert compute_resume_position(12, 100, 4) == (0, 12, 12)
+@pytest.mark.parametrize(
+    ("global_step", "bpe", "grad_accum", "expected"),
+    [
+        pytest.param(
+            # grad_accum=1: aligned == global_step always (zero regression vs. pre-fix behaviour).
+            25,
+            10,
+            1,
+            (2, 5, 25),
+            id="grad_accum_1_identity",
+        ),
+        pytest.param(
+            # gs=10, bpe=100, grad_accum=4: skip 10 -> 8, aligned 10 -> 8 (no re-train, step matched).
+            10,
+            100,
+            4,
+            (0, 8, 8),
+            id="floors_skip_pulls_back",
+        ),
+        pytest.param(
+            # gs=16, bpe=10, grad_accum=4: start=1, skip 6 -> 4, aligned = 1*10 + 4 = 14.
+            16,
+            10,
+            4,
+            (1, 4, 14),
+            id="alignment_across_epoch",
+        ),
+        pytest.param(
+            # gs=12, bpe=100, grad_accum=4: skip 12 already a multiple of 4 -> unchanged.
+            12,
+            100,
+            4,
+            (0, 12, 12),
+            id="already_aligned_unchanged",
+        ),
+    ],
+)
+def test_compute_resume_position(global_step, bpe, grad_accum, expected):
+    assert compute_resume_position(global_step, bpe, grad_accum) == expected
 
 
 # --- finalize_keep_weights_only ---

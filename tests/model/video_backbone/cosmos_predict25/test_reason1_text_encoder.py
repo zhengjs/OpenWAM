@@ -95,14 +95,16 @@ def test_validate_geometry_accepts_nested_text_config():
     Reason1LiveTextEncoder._validate_geometry(_fake_model(3584, 28))
 
 
-def test_validate_geometry_rejects_wrong_hidden_size():
-    with pytest.raises(ValueError, match="hidden_size"):
-        Reason1LiveTextEncoder._validate_geometry(_fake_model(1024, 28))
-
-
-def test_validate_geometry_rejects_wrong_layer_count():
-    with pytest.raises(ValueError, match="num_hidden_layers"):
-        Reason1LiveTextEncoder._validate_geometry(_fake_model(3584, 32))
+@pytest.mark.parametrize(
+    "hidden_size, num_layers, match",
+    [
+        pytest.param(1024, 28, "hidden_size", id="rejects_hidden_size"),
+        pytest.param(3584, 32, "num_hidden_layers", id="rejects_layer_count"),
+    ],
+)
+def test_validate_geometry_rejects_wrong_geometry(hidden_size, num_layers, match):
+    with pytest.raises(ValueError, match=match):
+        Reason1LiveTextEncoder._validate_geometry(_fake_model(hidden_size, num_layers))
 
 
 # ----------------------------------------------------------------------

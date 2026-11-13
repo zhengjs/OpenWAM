@@ -61,40 +61,47 @@ def test_factor_one_no_round_up(capsys):
     assert "num_frames" not in out, f"unexpected round-up message: {out!r}"
 
 
-def test_wan22_vae_factor_four_already_compliant_no_round_up(capsys):
-    """Wan VAE: factor=4, remainder=1, num_frames=9 satisfies 9 % 4 == 1.
-    Method returns 9 unchanged and prints nothing."""
-    pipe = _StubPipe(time_division_factor=4, time_division_remainder=1)
+@pytest.mark.parametrize(
+    "factor",
+    [
+        pytest.param(4, id="wan22_no_round_up"),
+        pytest.param(2, id="vjepa_no_round_up"),
+    ],
+)
+def test_already_compliant_no_round_up(capsys, factor):
+    """Already-compliant num_frames=9 (remainder=1) is returned unchanged with
+    no round-up print:
+
+    - wan22_no_round_up — Wan VAE: factor=4, remainder=1, num_frames=9
+      satisfies 9 % 4 == 1. Method returns 9 unchanged and prints nothing.
+    - vjepa_no_round_up — V-JEPA 2.1: factor=2, remainder=1, num_frames=9
+      satisfies 9 % 2 == 1. Method returns 9 unchanged and prints nothing.
+    """
+    pipe = _StubPipe(time_division_factor=factor, time_division_remainder=1)
     assert _call(pipe, 9) == 9
     out = capsys.readouterr().out
     assert "num_frames" not in out
 
 
-def test_wan22_vae_factor_four_round_up_still_works(capsys):
+@pytest.mark.parametrize(
+    "factor, num_frames, expected",
+    [
+        pytest.param(4, 8, 9, id="wan22_round_up"),
+        pytest.param(2, 10, 11, id="vjepa_round_up"),
+    ],
+)
+def test_round_up_still_works(capsys, factor, num_frames, expected):
     """Regression guard: the fix must NOT break legitimate round-up for
-    factor > 1. num_frames=8, factor=4, remainder=1 → round up to 9."""
-    pipe = _StubPipe(time_division_factor=4, time_division_remainder=1)
-    assert _call(pipe, 8) == 9
+    factor > 1:
+
+    - wan22_round_up — num_frames=8, factor=4, remainder=1 → round up to 9.
+    - vjepa_round_up — V-JEPA round-up still works. num_frames=10, factor=2,
+      remainder=1 → round up to 11.
+    """
+    pipe = _StubPipe(time_division_factor=factor, time_division_remainder=1)
+    assert _call(pipe, num_frames) == expected
     out = capsys.readouterr().out
-    assert "num_frames" in out and "9" in out
-
-
-def test_vjepa_factor_two_already_compliant_no_round_up(capsys):
-    """V-JEPA 2.1: factor=2, remainder=1, num_frames=9 satisfies 9 % 2 == 1.
-    Method returns 9 unchanged and prints nothing."""
-    pipe = _StubPipe(time_division_factor=2, time_division_remainder=1)
-    assert _call(pipe, 9) == 9
-    out = capsys.readouterr().out
-    assert "num_frames" not in out
-
-
-def test_vjepa_factor_two_round_up_still_works(capsys):
-    """Regression guard: V-JEPA round-up still works. num_frames=10, factor=2,
-    remainder=1 → round up to 11."""
-    pipe = _StubPipe(time_division_factor=2, time_division_remainder=1)
-    assert _call(pipe, 10) == 11
-    out = capsys.readouterr().out
-    assert "num_frames" in out and "11" in out
+    assert "num_frames" in out and str(expected) in out
 
 
 @pytest.mark.parametrize("num_frames", [1, 2, 5, 9, 17, 33, 65])

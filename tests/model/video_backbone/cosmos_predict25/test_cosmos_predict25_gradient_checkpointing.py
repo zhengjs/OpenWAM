@@ -16,6 +16,7 @@ needed — a tiny fake net exercises ``run_block`` directly.
 
 from __future__ import annotations
 
+import pytest
 import torch
 import torch.nn as nn
 
@@ -75,12 +76,20 @@ def _run_and_backward(use_gc: bool) -> int:
     return net.blocks[0].calls
 
 
-def test_run_block_recomputes_when_checkpointing_enabled():
-    """Checkpointing on ⇒ block forward runs twice (forward + backward recompute)."""
-    assert _run_and_backward(use_gc=True) == 2
+@pytest.mark.parametrize(
+    "use_gc, expected_calls",
+    [
+        pytest.param(True, 2, id="checkpointing_recomputes"),
+        pytest.param(False, 1, id="no_checkpointing_single_forward"),
+    ],
+)
+def test_run_block_forward_count_honors_checkpointing_flag(use_gc, expected_calls):
+    """Block forward count vs ``use_gradient_checkpointing``:
 
-
-def test_run_block_single_forward_when_checkpointing_disabled():
-    """Checkpointing off ⇒ exactly one block forward; result is byte-identical
-    to a direct call, so the non-checkpointed path is unchanged by the fix."""
-    assert _run_and_backward(use_gc=False) == 1
+    - checkpointing_recomputes — flag on ⇒ block forward runs twice (forward +
+      backward recompute).
+    - no_checkpointing_single_forward — flag off ⇒ exactly one block forward;
+      result is byte-identical to a direct call, so the non-checkpointed path
+      is unchanged by the fix.
+    """
+    assert _run_and_backward(use_gc=use_gc) == expected_calls

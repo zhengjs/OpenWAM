@@ -1053,21 +1053,19 @@ def test_tri_system_joint_self_attn_compile_auto_sets_mot_loop():
     assert arch._compiled_mot_run_joint_loop("v", "a", "u", "mask") == ("v", "a", "u")
 
 
-def test_normalize_architecture_spec_single_system():
+@pytest.mark.parametrize(
+    "registry_name, expected_variant",
+    [
+        pytest.param("single_system_vanilla", "vanilla", id="vanilla"),
+        pytest.param("single_system_moe", "moe", id="moe"),
+    ],
+)
+def test_normalize_architecture_spec_single_system(registry_name, expected_variant):
     from openwam.model.architectures.registry import normalize_architecture_spec
 
-    spec = normalize_architecture_spec("single_system_vanilla", {"action_dim": 7})
+    spec = normalize_architecture_spec(registry_name, {"action_dim": 7})
     assert spec.framework == "single_system"
-    assert spec.variant == "vanilla"
-    assert spec.options == {}
-
-
-def test_normalize_architecture_spec_single_system_moe():
-    from openwam.model.architectures.registry import normalize_architecture_spec
-
-    spec = normalize_architecture_spec("single_system_moe", {"action_dim": 7})
-    assert spec.framework == "single_system"
-    assert spec.variant == "moe"
+    assert spec.variant == expected_variant
     assert spec.options == {}
 
 
