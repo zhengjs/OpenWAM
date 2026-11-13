@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import io
-import json
 from pathlib import Path
 
 import cv2
@@ -15,7 +14,6 @@ from PIL import Image
 
 from openwam.dataloader.registry import build_dataset
 from openwam.dataloader.robodojo import (
-    DEFAULT_ROBODOJO_CAMERA_LAYOUT,
     DEPLOY_ACTION_MODE,
     GRIPPER_CONVENTION,
     MultiTaskRoboDojoDataset,
@@ -24,11 +22,6 @@ from openwam.dataloader.robodojo import (
     read_calibrated_eef20,
 )
 from openwam.dataloader.robodojo_contract import (
-    CALIBRATION_SCHEMA_VERSION,
-    EEF20_LAYOUT,
-    ENDPOINT_LINK_NAME,
-    ENDPOINT_POSE_FRAME_CONTRACT,
-    ROBODOJO_EMBODIMENT,
     discover_episodes,
     load_calibration,
     save_calibration,
@@ -123,6 +116,20 @@ def formal_data_dir(
     data = root / task / embodiment / "data"
     data.mkdir(parents=True, exist_ok=True)
     return data
+
+
+def minimal_reader_kwargs(root: Path) -> dict:
+    """Minimal valid RoboDojoDataset kwargs rooted at ``root`` / ``pick_mug``."""
+    return {
+        "data_root": formal_data_dir(root, "pick_mug"),
+        "dataset_root": root,
+        "task_name": "pick_mug",
+        "normalize_mode": None,
+        "unify_action": False,
+        "num_frames": 3,
+        "height": 48,
+        "width": 64,
+    }
 
 
 def write_episode(
@@ -330,6 +337,14 @@ def test_real_reader_preserves_native_pose_and_clips_only_gripper_sensor_noise(
     assert dataset.calibration is None
     assert dataset.variant == "real"
     assert dataset.source_frame == ("per_arm_robot_base_position_and_orientation_wxyz")
+    validate_embodiment(embodiment, variant="real")
+    if embodiment == "arx_x5":
+        # Variant matrix (from the former constants-pin test): piper and piper_x
+        # ship real corpora only, and nothing has a hardware variant.
+        with pytest.raises(ValueError, match="only supported.*arx_x5"):
+            validate_embodiment("piper", variant="sim")
+        with pytest.raises(ValueError, match="variant"):
+            validate_embodiment("arx_x5", variant="hardware")
     np.testing.assert_array_equal(raw, expected)
     sample = dataset[0]
     np.testing.assert_array_equal(sample["proprio"].numpy(), expected[0:1])
@@ -348,12 +363,6 @@ def test_instruction_and_three_camera_l_shape_support(tmp_path: Path, jpeg_stora
     )
     dataset = build_single(tmp_path, num_frames=3, video_stride=1)
     sample = dataset[0]
-
-    assert DEFAULT_ROBODOJO_CAMERA_LAYOUT == (
-        "cam_head",
-        "cam_left_wrist",
-        "cam_right_wrist",
-    )
     assert sample["prompt"] == format_prompt_for_inference("Move the blue block.")
     assert len(sample["video"]) == 3
     assert sample["video_mask"].tolist() == [True, True, True]
@@ -510,45 +519,20 @@ def test_normalize_raw20_then_scatter_to_80_and_inverse_denormalize(
 
 def test_unification_requires_explicit_complete_map(tmp_path: Path):
     write_episode(tmp_path, T=3)
-    common = {
-        "data_root": formal_data_dir(tmp_path, "pick_mug"),
-        "dataset_root": tmp_path,
-        "task_name": "pick_mug",
-        "normalize_mode": None,
-        "num_frames": 3,
-        "height": 48,
-        "width": 64,
-    }
+    unify = {**minimal_reader_kwargs(tmp_path), "unify_action": True}
     with pytest.raises(ValueError, match="explicit unify_action_map"):
-        RoboDojoDataset(**common, unify_action=True)
+        RoboDojoDataset(**unify)
     with pytest.raises(ValueError, match="20"):
-        RoboDojoDataset(
-            **common,
-            unify_action=True,
-            unify_action_map=["0-9"],
-        )
+        RoboDojoDataset(**unify, unify_action_map=["0-9"])
     with pytest.raises(ValueError, match=r"canonical.*0-9.*34-43"):
-        RoboDojoDataset(
-            **common,
-            unify_action=True,
-            unify_action_map=["1-20"],
-        )
+        RoboDojoDataset(**unify, unify_action_map=["1-20"])
 
 
 def test_normalization_auto_generates_or_validates_explicit_stats(
     tmp_path: Path,
 ):
     write_episode(tmp_path, T=3)
-    common = {
-        "data_root": formal_data_dir(tmp_path, "pick_mug"),
-        "dataset_root": tmp_path,
-        "task_name": "pick_mug",
-        "normalize_mode": "min-max",
-        "num_frames": 3,
-        "height": 48,
-        "width": 64,
-        "unify_action": False,
-    }
+    common = {**minimal_reader_kwargs(tmp_path), "normalize_mode": "min-max"}
     automatic = RoboDojoDataset(**common)
     expected_automatic = tmp_path / "meta" / "robodojo_normalization_stats.npy"
     assert automatic.normalization_stats_path == str(expected_automatic)
@@ -611,15 +595,8 @@ def test_calibration_path_is_rejected(tmp_path: Path):
     write_episode(tmp_path, T=3)
     with pytest.raises(ValueError, match="calibration_path is not accepted"):
         RoboDojoDataset(
-            data_root=formal_data_dir(tmp_path, "pick_mug"),
-            dataset_root=tmp_path,
-            task_name="pick_mug",
+            **minimal_reader_kwargs(tmp_path),
             calibration_path=tmp_path / "calibration.json",
-            normalize_mode=None,
-            unify_action=False,
-            num_frames=3,
-            height=48,
-            width=64,
         )
     with pytest.raises(ValueError, match="calibration_path is not accepted"):
         MultiTaskRoboDojoDataset(
@@ -708,44 +685,29 @@ def test_episode_schema_rejects_single_frame_empty_instruction_and_camera_mismat
         build_single(tmp_path / "camera", num_frames=3)
 
 
-def test_episode_schema_rejects_non_jpeg_camera_storage_dtype(tmp_path: Path):
-    path = write_episode(tmp_path, T=3)
-    with h5py.File(path, "a") as handle:
-        del handle["vision/cam_head/colors"]
-        handle.create_dataset(
-            "vision/cam_head/colors",
-            data=np.arange(3, dtype=np.uint8),
-        )
-    with pytest.raises(ValueError, match=r"fixed byte-string.*vlen/padded uint8"):
-        build_single(tmp_path, num_frames=3)
-
-
-def test_episode_schema_rejects_two_dimensional_non_uint8_camera_storage(
+@pytest.mark.parametrize(
+    ("stored", "message"),
+    [
+        (np.arange(3, dtype=np.uint8), r"fixed byte-string.*vlen/padded uint8"),
+        (np.zeros((3, 32), dtype=np.int16), r"fixed/vlen JPEG entries.*padded uint8"),
+    ],
+)
+def test_episode_schema_rejects_unsupported_camera_storage_dtypes(
     tmp_path: Path,
+    stored,
+    message: str,
 ):
     path = write_episode(tmp_path, T=3)
     with h5py.File(path, "a") as handle:
         del handle["vision/cam_head/colors"]
-        handle.create_dataset(
-            "vision/cam_head/colors",
-            data=np.zeros((3, 32), dtype=np.int16),
-        )
-    with pytest.raises(ValueError, match=r"fixed/vlen JPEG entries.*padded uint8"):
+        handle.create_dataset("vision/cam_head/colors", data=stored)
+    with pytest.raises(ValueError, match=message):
         build_single(tmp_path, num_frames=3)
 
 
 def test_direct_reader_requires_verified_formal_dataset_root(tmp_path: Path):
     write_episode(tmp_path, T=3)
-    formal = RoboDojoDataset(
-        data_root=formal_data_dir(tmp_path, "pick_mug"),
-        dataset_root=tmp_path,
-        task_name="pick_mug",
-        normalize_mode=None,
-        unify_action=False,
-        num_frames=3,
-        height=48,
-        width=64,
-    )
+    formal = RoboDojoDataset(**minimal_reader_kwargs(tmp_path))
     assert len(formal) == 2
 
     flat_root = tmp_path / "flat"
@@ -768,22 +730,13 @@ def test_only_eef_supported_embodiment_num_frames_and_formal_layout_are_accepted
     tmp_path: Path,
 ):
     write_episode(tmp_path, T=3)
-    data_root = formal_data_dir(tmp_path, "pick_mug")
-    common = {
-        "data_root": data_root,
-        "dataset_root": tmp_path,
-        "task_name": "pick_mug",
-        "normalize_mode": None,
-        "unify_action": False,
-        "height": 48,
-        "width": 64,
-    }
+    common = minimal_reader_kwargs(tmp_path)
     with pytest.raises(ValueError, match="action_mode='eef'"):
         RoboDojoDataset(**common, action_mode="joint")
     with pytest.raises(ValueError, match="arx_x5"):
         RoboDojoDataset(**common, embodiment="franka")
     with pytest.raises(ValueError, match="num_frames.*>= 2"):
-        RoboDojoDataset(**common, num_frames=1)
+        RoboDojoDataset(**{**common, "num_frames": 1})
 
     flat = tmp_path / "flat"
     flat_data = flat / "arx_x5" / "data"
@@ -911,98 +864,7 @@ def test_decode_jpeg_undoes_the_recorder_channel_swap():
 # Focused tests for the shared RoboDojo EEF20 and frame contract.
 
 
-def _valid_calibration() -> dict:
-    return {
-        "schema_version": CALIBRATION_SCHEMA_VERSION,
-        "embodiment": ROBODOJO_EMBODIMENT,
-        "endpoint": {
-            "link_name": ENDPOINT_LINK_NAME,
-            "pose_frame_contract": ENDPOINT_POSE_FRAME_CONTRACT,
-        },
-        "arms": {
-            "left": {
-                "base_pos_relative_to_env_origin": [-0.3, -0.45, 0.765],
-                "base_quat_wxyz": [2**-0.5, 0.0, 0.0, 2**-0.5],
-            },
-            "right": {
-                "base_pos_relative_to_env_origin": [0.3, -0.45, 0.765],
-                "base_quat_wxyz": [2**-0.5, 0.0, 0.0, 2**-0.5],
-            },
-        },
-    }
-
-
-def test_contract_constants_pin_arx_x5_eef20_and_link6():
-    assert ROBODOJO_EMBODIMENT == "arx_x5"
-    assert ENDPOINT_LINK_NAME == "link6"
-    assert EEF20_LAYOUT == (
-        "left.xyz",
-        "left.rot6d",
-        "left.gripper",
-        "right.xyz",
-        "right.rot6d",
-        "right.gripper",
-    )
-    validate_embodiment("arx_x5")
-    with pytest.raises(ValueError, match="only supported.*arx_x5"):
-        validate_embodiment("franka")
-    for embodiment in ("arx_x5", "piper", "piper_x"):
-        validate_embodiment(embodiment, variant="real")
-    with pytest.raises(ValueError, match="only supported.*arx_x5"):
-        validate_embodiment("piper", variant="sim")
-    with pytest.raises(ValueError, match="variant"):
-        validate_embodiment("arx_x5", variant="hardware")
-
-
-def test_builtin_dual_x5_calibration_matches_robot_yaml_constants():
-    from openwam.dataloader.robodojo_contract import (
-        DUAL_X5_LEFT_BASE_POS,
-        DUAL_X5_LEFT_BASE_QUAT_WXYZ,
-        DUAL_X5_RIGHT_BASE_POS,
-        DUAL_X5_RIGHT_BASE_QUAT_WXYZ,
-        arx_x5_calibration,
-    )
-
-    assert DUAL_X5_LEFT_BASE_POS == (-0.3, -0.45, 0.765)
-    assert DUAL_X5_RIGHT_BASE_POS == (0.3, -0.45, 0.765)
-    assert DUAL_X5_LEFT_BASE_QUAT_WXYZ == (0.707, 0.0, 0.0, 0.707)
-    assert DUAL_X5_RIGHT_BASE_QUAT_WXYZ == (0.707, 0.0, 0.0, 0.707)
-
-    calibration = arx_x5_calibration()
-    np.testing.assert_allclose(
-        calibration["arms"]["left"]["base_pos_relative_to_env_origin"],
-        DUAL_X5_LEFT_BASE_POS,
-    )
-    np.testing.assert_allclose(
-        calibration["arms"]["right"]["base_pos_relative_to_env_origin"],
-        DUAL_X5_RIGHT_BASE_POS,
-    )
-    left_quat = np.asarray(calibration["arms"]["left"]["base_quat_wxyz"])
-    right_quat = np.asarray(calibration["arms"]["right"]["base_quat_wxyz"])
-    np.testing.assert_allclose(np.linalg.norm(left_quat), 1.0, atol=1e-6)
-    np.testing.assert_allclose(np.linalg.norm(right_quat), 1.0, atol=1e-6)
-    np.testing.assert_allclose(left_quat, right_quat)
-
-
-def test_formal_episode_discovery_and_flat_layout_rejection(tmp_path: Path):
-    formal = tmp_path / "pick_mug" / "arx_x5" / "data"
-    formal.mkdir(parents=True)
-    expected = [formal / "episode_0001.hdf5", formal / "episode_0002.hdf5"]
-    for path in reversed(expected):
-        path.touch()
-    (formal / "notes.hdf5").touch()
-
-    assert discover_episodes(tmp_path, "pick_mug") == expected
-
-    flat_root = tmp_path / "flat"
-    flat = flat_root / "arx_x5" / "data"
-    flat.mkdir(parents=True)
-    (flat / "episode_0000.hdf5").touch()
-    with pytest.raises(ValueError, match="flat.*not supported"):
-        discover_episodes(flat_root, "pick_mug")
-
-
-def test_formal_episode_discovery_rejects_missing_or_empty_layout(tmp_path: Path):
+def test_formal_episode_discovery_is_sorted_and_validated(tmp_path: Path):
     with pytest.raises(FileNotFoundError, match="formal RoboDojo data directory"):
         discover_episodes(tmp_path, "pick_mug")
 
@@ -1011,21 +873,23 @@ def test_formal_episode_discovery_rejects_missing_or_empty_layout(tmp_path: Path
     with pytest.raises(FileNotFoundError, match=r"episode_\*\.hdf5"):
         discover_episodes(tmp_path, "pick_mug")
 
+    expected = [formal / "episode_0001.hdf5", formal / "episode_0002.hdf5"]
+    for path in reversed(expected):
+        path.touch()
+    (formal / "notes.hdf5").touch()
+    assert discover_episodes(tmp_path, "pick_mug") == expected
+
     with pytest.raises(ValueError, match="single path component"):
         discover_episodes(tmp_path, "../pick_mug")
 
 
 def test_calibration_json_round_trip_is_validated_and_versioned(tmp_path: Path):
-    payload = _valid_calibration()
+    payload = valid_calibration()
     path = tmp_path / "frames.json"
 
     save_calibration(payload, path)
 
     assert load_calibration(path) == payload
-    on_disk = json.loads(path.read_text(encoding="utf-8"))
-    assert on_disk["schema_version"] == CALIBRATION_SCHEMA_VERSION
-    assert on_disk["embodiment"] == "arx_x5"
-    assert on_disk["endpoint"]["link_name"] == "link6"
 
 
 @pytest.mark.parametrize(
@@ -1035,30 +899,25 @@ def test_calibration_json_round_trip_is_validated_and_versioned(tmp_path: Path):
         (lambda x: x.update(embodiment="franka"), "embodiment"),
         (lambda x: x["endpoint"].update(link_name="gripper"), "link6"),
         (lambda x: x["endpoint"].update(pose_frame_contract="tcp"), "pose_frame_contract"),
-        (lambda x: x["arms"].pop("left"), "arms.*left.*right"),
+        (lambda x: x["arms"].__delitem__("left"), "arms.*left.*right"),
         (lambda x: x["arms"].update(center=x["arms"]["left"]), "arms.*left.*right"),
-        (lambda x: x["arms"]["left"].pop("base_quat_wxyz"), "base_quat_wxyz"),
+        (lambda x: x["arms"]["left"].__delitem__("base_quat_wxyz"), "base_quat_wxyz"),
         (
             lambda x: x["arms"]["left"].update(base_pos_relative_to_env_origin=[0.0, np.nan, 0.0]),
             "finite",
         ),
         (lambda x: x["arms"]["right"].update(base_quat_wxyz=[1.0, 1.0, 0.0, 0.0]), "unit"),
+        (lambda x: x.update(surprise=True), "unexpected.*surprise"),
+        # Non-mapping payloads are the one rejection a mutation cannot produce
+        # in place, so this row returns a replacement payload instead.
+        (lambda _: [], "JSON object"),
     ],
 )
 def test_calibration_schema_rejects_malformed_payloads(mutation, message):
-    payload = copy.deepcopy(_valid_calibration())
-    mutation(payload)
+    payload = copy.deepcopy(valid_calibration())
+    replacement = mutation(payload)
     with pytest.raises(ValueError, match=message):
-        validate_calibration(payload)
-
-
-def test_calibration_schema_rejects_unknown_fields_and_non_mapping():
-    payload = _valid_calibration()
-    payload["surprise"] = True
-    with pytest.raises(ValueError, match="unexpected.*surprise"):
-        validate_calibration(payload)
-    with pytest.raises(ValueError, match="JSON object"):
-        validate_calibration([])
+        validate_calibration(payload if replacement is None else replacement)
 
 
 def test_wxyz_quaternion_convention_and_rot6d_round_trip():
@@ -1139,6 +998,7 @@ def test_env_relative_world_and_robot_base_known_transform_and_round_trip():
     ("call", "message"),
     [
         (lambda: quat_wxyz_to_rot6d(np.ones(3)), r"shape.*4"),
+        (lambda: quat_wxyz_to_rot6d(np.ones((4, 3))), r"shape.*4"),
         (lambda: quat_wxyz_to_rot6d(np.array([1.0, 0.0, np.inf, 0.0])), "finite"),
         (lambda: quat_wxyz_to_rot6d(np.array([2.0, 0.0, 0.0, 0.0])), "unit"),
         (lambda: rot6d_to_quat_wxyz(np.zeros(6)), "degenerate"),

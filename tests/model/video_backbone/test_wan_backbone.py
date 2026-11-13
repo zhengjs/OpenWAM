@@ -21,6 +21,7 @@ Plus the I2V deploy first-frame unwrap path.
 from __future__ import annotations
 
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import torch
 
@@ -620,3 +621,97 @@ def test_license_exists():
     assert license_path.exists(), f"LICENSE not found at {license_path}"
     content = license_path.read_text()
     assert "Apache License" in content
+
+
+# ==== from tests/integration/test_wam_architecture.py ====
+# Wan backbone compile-optimization dispatch: ``run_block`` compiles lazily
+# under mode "auto" and skips gradient-checkpointed calls.
+
+
+def _make_tiny_wan_backbone_for_compile_test():
+    from openwam.model.video_backbone.wan_backbone import Wan22Ti2v
+
+    class _Block(torch.nn.Module):
+        def forward(self, x, context, t_mod, freqs, context_mask=None, self_attn_mask=None):  # noqa: ARG002
+            return x + 1
+
+    class _Dit(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.dim = 8
+            self.freq_dim = 4
+            self.fuse_vae_embedding_in_latents = False
+            self.has_image_input = False
+            self.blocks = torch.nn.ModuleList([_Block()])
+            self.text_embedding = torch.nn.Linear(8, 8)
+
+    holder = SimpleNamespace(
+        dit=_Dit(),
+        scheduler=None,
+        tokenizer=None,
+        height_division_factor=1,
+        width_division_factor=1,
+        time_division_factor=1,
+        time_division_remainder=0,
+        latent_spec=None,
+    )
+    return Wan22Ti2v(holder)
+
+
+def _tiny_wan_block_state(vb, *, use_gradient_checkpointing=False):
+    from openwam.model.video_backbone.base import BlockLoopState
+
+    return BlockLoopState(
+        hidden_states=torch.zeros(1, 2, 8),
+        time_mod=torch.zeros(1, 6, 8),
+        rope_freqs=torch.zeros(2, 1, 1),
+        context=torch.zeros(1, 3, 8),
+        context_mask=torch.ones(1, 3, dtype=torch.bool),
+        grid_frames=2,
+        grid_height=1,
+        grid_width=1,
+        use_gradient_checkpointing=use_gradient_checkpointing,
+        extras={"dit": vb.dit},
+    )
+
+
+def test_wan_backbone_compile_auto_lazily_compiles_run_block():
+    from omegaconf import OmegaConf
+
+    vb = _make_tiny_wan_backbone_for_compile_test()
+    cfg = OmegaConf.create({"mode": "auto", "wan_blocks": {}})
+    calls = {"compile": 0, "wrapped": 0}
+
+    def _identity_compile(fn, **kwargs):
+        calls["compile"] += 1
+        assert kwargs == {"dynamic": False, "mode": "default"}
+
+        def _wrapped(*args, **kw):
+            calls["wrapped"] += 1
+            return fn(*args, **kw)
+
+        return _wrapped
+
+    with patch("torch.compile", side_effect=_identity_compile):
+        vb.apply_compile_optimizations(cfg)
+        assert calls["compile"] == 0
+
+        state = _tiny_wan_block_state(vb)
+        state = vb.run_block(0, state)
+        state = vb.run_block(0, state)
+
+    assert calls == {"compile": 1, "wrapped": 2}
+    assert torch.equal(state.hidden_states, torch.full((1, 2, 8), 2.0))
+
+
+def test_wan_backbone_compile_skips_gradient_checkpointed_run_block():
+    from omegaconf import OmegaConf
+
+    vb = _make_tiny_wan_backbone_for_compile_test()
+    vb.apply_compile_optimizations(OmegaConf.create({"mode": "auto", "wan_blocks": {}}))
+
+    with patch("torch.compile") as mock_compile:
+        state = vb.run_block(0, _tiny_wan_block_state(vb, use_gradient_checkpointing=True))
+
+    mock_compile.assert_not_called()
+    assert torch.equal(state.hidden_states, torch.ones(1, 2, 8))

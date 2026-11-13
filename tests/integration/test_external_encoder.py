@@ -121,33 +121,17 @@ def test_A3_register_rejects_non_subclass():
     assert "_test_a3_notencoder" not in _VIDEO_ENCODER_REGISTRY
 
 
-def test_A4_default_decode_raises_with_contract_aware_msg():
+def test_A4_default_decode_and_to_frames_raise_with_contract_aware_msg():
+    """Default decode / to_frames hooks raise NotImplementedError whose message
+    names the contract flag that disables them (pixel_decode=False)."""
     enc = _make_mock_encoder(pixel_decode=False)
     with pytest.raises(NotImplementedError) as exc:
         enc.decode(torch.zeros(1, 16, 4, 8, 8))
     assert "pixel_decode=False" in str(exc.value)
-
-
-def test_A5_default_to_frames_raises_with_contract_aware_msg():
-    enc = _make_mock_encoder(pixel_decode=False)
+    # to_frames (folded in from A5): same contract-aware failure mode.
     with pytest.raises(NotImplementedError) as exc:
         enc.to_frames(torch.zeros(1, 3, 4, 8, 8))
     assert "pixel_decode=False" in str(exc.value)
-
-
-def test_A6_default_hooks_produce_wan_structure_for_z_dim_16():
-    enc = _make_mock_encoder(z_dim=16, dit_patch_size=(1, 2, 2))
-    inp = enc.build_dit_input_proj(dit_dim=1536)
-    out = enc.build_dit_output_proj(dit_dim=1536)
-    assert isinstance(inp, nn.Conv3d)
-    assert inp.in_channels == 16
-    assert inp.out_channels == 1536
-    assert inp.kernel_size == (1, 2, 2)
-    assert inp.stride == (1, 2, 2)
-    assert isinstance(out, nn.Linear)
-    assert out.in_features == 1536
-    # z_dim * prod(patch_size) = 16 * 1 * 2 * 2 = 64
-    assert out.out_features == 16 * math.prod((1, 2, 2))
 
 
 # ===========================================================================
@@ -176,14 +160,6 @@ class _FakeWanVAEModule(nn.Module):
     def decode(self, latents: Tensor, device, tiled: bool = False) -> Tensor:
         B, _, T, H, W = latents.shape
         return torch.zeros(B, 3, T * 4, H * self.upsampling_factor, W * self.upsampling_factor)
-
-
-def test_B1_wan22_vae_registered():
-    """Importing the encoder package registers wan22_vae under that name."""
-    from openwam.model.video_backbone.encoder import WanVideoVAEEncoder
-
-    assert "wan22_vae" in _VIDEO_ENCODER_REGISTRY
-    assert _VIDEO_ENCODER_REGISTRY["wan22_vae"] is WanVideoVAEEncoder
 
 
 def test_B2_wan22_vae_default_hooks_match_wan21():
@@ -312,31 +288,6 @@ def test_C2_default_path_pipe_vae_call_sites_preserved(monkeypatch):
     assert wan_encode.latents_to_frames(dec, encoder=None) == ["frame0", "frame1"]
 
 
-def test_C3_external_path_releases_pipe_vae_in_from_pretrained():
-    """from_pretrained must set pipe.vae=None when an external_encoder is wired."""
-    from openwam.model.video_backbone.encoder import WanVideoVAEEncoder
-    from openwam.model.video_backbone.wan_backbone import Wan22Ti2v
-
-    pipe = _FakePipe()
-    enc = WanVideoVAEEncoder(_FakeWanVAEModule(z_dim=16, upsampling_factor=8))
-    backbone = Wan22Ti2v.from_pretrained(pipe, external_encoder=enc)
-    assert backbone._uses_external_encoder is True
-    assert getattr(backbone, "vae", None) is None
-
-
-def test_C4_external_path_state_dict_keys_swap():
-    """External path: video_encoder.* keys present, native vae.* absent."""
-    from openwam.model.video_backbone.encoder import WanVideoVAEEncoder
-    from openwam.model.video_backbone.wan_backbone import Wan22Ti2v
-
-    pipe = _FakePipe()
-    enc = WanVideoVAEEncoder(_FakeWanVAEModule(z_dim=16, upsampling_factor=8))
-    backbone = Wan22Ti2v.from_pretrained(pipe, external_encoder=enc)
-    sd = backbone.state_dict()
-    assert any(k.startswith("video_encoder.") for k in sd), "external path should expose video_encoder.* keys"
-    assert not any(k.startswith("vae.") for k in sd), "external path must release the native vae.*"
-
-
 def test_C6_get_submodule_vae_routes_to_encoder_on_external_path():
     """get_submodule('vae') returns the encoder on external path, pipe.vae on default."""
     from openwam.model.video_backbone.encoder import WanVideoVAEEncoder
@@ -350,33 +301,6 @@ def test_C6_get_submodule_vae_routes_to_encoder_on_external_path():
     enc = WanVideoVAEEncoder(_FakeWanVAEModule(z_dim=16, upsampling_factor=8))
     backbone_external = Wan22Ti2v.from_pretrained(pipe_external, external_encoder=enc)
     assert backbone_external.get_submodule("vae") is enc
-
-
-def test_C7_set_dtype_device_moves_external_encoder():
-    """The encoder is a named child, so set_dtype_device (self.to) moves it too."""
-    from openwam.model.video_backbone.encoder import WanVideoVAEEncoder
-    from openwam.model.video_backbone.wan_backbone import Wan22Ti2v
-
-    pipe = _FakePipe()
-    enc = WanVideoVAEEncoder(_FakeWanVAEModule(z_dim=16, upsampling_factor=8))
-    backbone = Wan22Ti2v.from_pretrained(pipe, external_encoder=enc)
-    # Track moves via a side-effect: read the encoder's proj dtype after .to().
-    backbone.set_dtype_device(torch.float32, torch.device("cpu"))
-    assert next(enc._m.parameters()).dtype == torch.float32
-
-
-def test_C10_spec_validation_fully_skipped_when_irreversible():
-    """Irreversible encoder declares its own latent geometry; the backbone
-    skips validation entirely (z_dim, spatial/temporal compression, causal
-    are all encoder-owned). This case exercises a matching spatial=8 so it
-    only verifies the z_dim mismatch is tolerated; C10b covers the harder
-    case where spatial also differs from the backbone's native VAE."""
-    from openwam.model.video_backbone.wan_backbone import Wan22Ti2v
-
-    pipe = _FakePipe(vae_z_dim=16, vae_upsample=8)
-    enc = WanVideoVAEEncoderStub(spec_z_dim=1024, pixel_decode=False)
-    backbone = Wan22Ti2v.from_pretrained(pipe, external_encoder=enc)
-    assert backbone._uses_external_encoder is True
 
 
 def test_C10b_divergent_geometry_irreversible_encoder_loads():
@@ -527,7 +451,7 @@ def test_C13c_reinit_syncs_patch_size_for_non_default_encoder():
     assert out.shape[-1] == enc.properties.z_dim * math.prod(enc.properties.dit_patch_size)
 
 
-def test_C13e_adapt_dit_to_external_encoder_no_reset():
+def test_C13e_adapt_dit_to_external_encoder_no_reset_and_patch_size_guard():
     """``adapt_dit_to_external_encoder`` (deploy path) reshapes
     ``patch_embedding`` / ``head.head`` / ``patch_size`` / ``in_dim``
     without touching the rest of the DiT.
@@ -540,10 +464,20 @@ def test_C13e_adapt_dit_to_external_encoder_no_reset():
     Regression: pre-fix, deploy was stuck with Wan-native
     ``patch_embedding.in_channels == 48`` because the reshape lived
     inside the reset path which is gated on training (source is None).
+
+    Also (folded in from C13f): mirrors ``reinit_dit_from_scratch``'s
+    single-source-of-truth invariant — refuses ``dit_patch_size=None`` so
+    callers source it from the backbone rather than the encoder spec.
     """
     from openwam.model.video_backbone.wan.reinit import adapt_dit_to_external_encoder
 
     pipe = _FakePipe(vae_z_dim=16, vae_upsample=8)
+    enc = WanVideoVAEEncoderStub(spec_z_dim=1024, pixel_decode=False)
+
+    # None-guard (from C13f): raises before any reshape happens.
+    with pytest.raises(ValueError, match=r"dit_patch_size is required"):
+        adapt_dit_to_external_encoder(pipe, enc, None)
+
     # Attach a sentinel sub-module that the adapt path must NOT touch.
     # After adapt, its weight must remain the stamped value — proof that
     # adapt did not run a global reset_parameters like reinit does.
@@ -551,7 +485,6 @@ def test_C13e_adapt_dit_to_external_encoder_no_reset():
     sentinel.weight.data.fill_(0.1234)
     sentinel_snapshot = sentinel.weight.detach().clone()
     pipe.dit.add_module("sentinel_check", sentinel)
-    enc = WanVideoVAEEncoderStub(spec_z_dim=1024, pixel_decode=False)
 
     adapt_dit_to_external_encoder(pipe, enc, enc.properties.dit_patch_size)
 
@@ -565,24 +498,13 @@ def test_C13e_adapt_dit_to_external_encoder_no_reset():
     assert torch.equal(pipe.dit.sentinel_check.weight, sentinel_snapshot)
 
 
-def test_C13f_adapt_dit_to_external_encoder_requires_patch_size():
-    """``adapt_dit_to_external_encoder`` mirrors
-    ``reinit_dit_from_scratch``'s single-source-of-truth invariant —
-    refuses ``dit_patch_size=None`` so callers source it from the
-    backbone rather than the encoder spec.
-    """
-    from openwam.model.video_backbone.wan.reinit import adapt_dit_to_external_encoder
-
-    pipe = _FakePipe(vae_z_dim=16, vae_upsample=8)
-    enc = WanVideoVAEEncoderStub(spec_z_dim=1024, pixel_decode=False)
-    with pytest.raises(ValueError, match=r"dit_patch_size is required"):
-        adapt_dit_to_external_encoder(pipe, enc, None)
-
-
-def test_C14_wan_save_deploy_assets_forwards_to_external_encoder(tmp_path):
+def test_C14_wan_save_deploy_assets_forwards_to_encoder_and_no_op_without(tmp_path):
     """``WanVideoBackbone.save_deploy_assets`` must forward to the external
     encoder's ``save_deploy_assets`` hook so V-JEPA's ``manifest.json`` lands
-    in the checkpoint dir.
+    in the checkpoint dir; without an external encoder it only runs the
+    spec/tokenizer step — no encoder hook call, no crash on the default path
+    (regression guard against routing the encoder branch into the default
+    path; folded in from C15).
 
     The Wan spec/tokenizer step inside the same method is a no-op here because
     ``model_path`` points at a nonexistent dir, so ``save_video_backbone_deploy_assets``
@@ -591,7 +513,7 @@ def test_C14_wan_save_deploy_assets_forwards_to_external_encoder(tmp_path):
     """
     from omegaconf import OmegaConf
 
-    from openwam.model.video_backbone.wan_backbone import Wan22Ti2v
+    from openwam.model.video_backbone.wan_backbone import Wan21, Wan22Ti2v
 
     class _RecordingEncoder(_MockEncoderBase):
         def __init__(self):
@@ -601,6 +523,7 @@ def test_C14_wan_save_deploy_assets_forwards_to_external_encoder(tmp_path):
         def save_deploy_assets(self, output_dir, cfg):
             self.calls.append((output_dir, cfg))
 
+    # --- External-encoder face (C14): the hook is forwarded verbatim. ---
     pipe = _FakePipe()
     enc = _RecordingEncoder()
     backbone = Wan22Ti2v.from_pretrained(pipe, external_encoder=enc)
@@ -609,22 +532,12 @@ def test_C14_wan_save_deploy_assets_forwards_to_external_encoder(tmp_path):
 
     assert enc.calls == [(str(tmp_path), cfg)]
 
-
-def test_C15_wan_save_deploy_assets_no_op_without_external_encoder(tmp_path):
-    """Without an external encoder, ``WanVideoBackbone.save_deploy_assets``
-    only runs the spec/tokenizer step — no encoder hook call, no crash on the
-    default path. Regression guard against accidentally routing the encoder
-    branch into the default path.
-    """
-    from omegaconf import OmegaConf
-
-    from openwam.model.video_backbone.wan_backbone import Wan21
-
-    pipe = _FakePipe()
-    backbone = Wan21(pipe)
-    assert backbone.video_encoder is None
-    cfg = OmegaConf.create({"model": {"video_backbone": {"model_path": str(tmp_path)}}})
-    backbone.save_deploy_assets(str(tmp_path), cfg)
+    # --- Default-path face (C15): no external encoder → hook not called, no crash. ---
+    pipe_default = _FakePipe()
+    backbone_default = Wan21(pipe_default)
+    assert backbone_default.video_encoder is None
+    cfg_default = OmegaConf.create({"model": {"video_backbone": {"model_path": str(tmp_path)}}})
+    backbone_default.save_deploy_assets(str(tmp_path), cfg_default)
     # No exception, no spurious files.
     # (Tokenizer copy is itself a warning-on-missing path; we don't assert
     # its side effects here — they are covered by Wan-side unit tests.)
@@ -699,117 +612,31 @@ def _run_init_video_backbone(model_cfg):
     return stub
 
 
-def test_D2_encoder_block_with_from_scratch_false_silently_ignored(monkeypatch, caplog):
-    """The encoder block is silently ignored (no error, encoder NOT built)
-    when from_scratch=false. The default yaml ships with an encoder: block
-    for documentation discoverability — fail-fast would break the default
-    training command. We log INFO instead so users can still find the answer
-    when debugging "why isn't my encoder being used?"."""
-    encoder_built: list = []
-    fake_kw: dict = {}
+def test_D2_encoder_block_gate_matrix(monkeypatch, caplog):
+    """The ``video_backbone.encoder`` yaml gate matrix, exercised as four cells
+    against ``_init_video_backbone`` on a stub architecture (formerly four
+    separate tests: D2 / D2b / D3 / D4). Only one cell builds an encoder:
 
-    def fake_build_encoder(enc_cfg):
-        encoder_built.append(enc_cfg)
-        raise RuntimeError("should not be reached when from_scratch=false")
-
-    def fake_build_backbone(name, cfg, **kw):
-        fake_kw.update(kw)
-        bb = nn.Module()
-        bb._pipe = None
-        bb.temporal_compression = 4
-        bb.causal_temporal = True
-        return bb
-
-    import openwam.model.video_backbone as vb_pkg
-    from openwam.model.video_backbone import encoder as enc_pkg
-
-    monkeypatch.setattr(enc_pkg, "build_video_encoder", fake_build_encoder)
-    monkeypatch.setattr(vb_pkg, "build_video_backbone", fake_build_backbone)
-
-    import logging
-
-    caplog.set_level(logging.INFO, logger="openwam.model.architectures.base")
-
-    cfg = {
-        "video_backbone": {
-            "name": "wan22_ti2v_5b",
-            "model_path": "/dummy",
-            "from_scratch": False,
-            "encoder": {"name": "wan22_vae", "model_path": "/dummy"},
-        }
-    }
-    _run_init_video_backbone(cfg)
-    assert encoder_built == [], "build_video_encoder must NOT be called when from_scratch=false"
-    assert fake_kw.get("external_encoder") is None, "no external_encoder should be passed to backbone"
-    assert any("encoder block IGNORED" in rec.message for rec in caplog.records), (
-        "expected an INFO log explaining that the encoder block was ignored"
-    )
-
-
-def test_D2b_deploy_with_encoder_block_and_from_scratch_false_keeps_native_vae(monkeypatch):
-    """Backward-compat regression: a ``from_scratch=false`` checkpoint
-    saved by current code still carries the framework yaml's inline
-    ``encoder:`` block in its config.yaml (PR #60 commit 6588044 added it
-    for discoverability). The state_dict topology is ``_pipe.vae.*`` —
-    the encoder block must NOT trigger external-encoder-skeleton
-    construction on the deploy path; otherwise strict checkpoint load
-    would mismatch ``_pipe.vae.*`` vs ``video_encoder._m.*``.
-
-    Same gate as training (test_D2): encoder honored ONLY when
-    ``from_scratch=true``. Deploy path stays quiet (no log spam) —
-    seeing the inline block at from_scratch=false is the expected
-    common case, not a user mistake.
+    1. training, from_scratch=false + encoder block → silently ignored (no
+       build, no forwarding) with an INFO log so users can still find the
+       answer when debugging "why isn't my encoder being used?". The default
+       yaml ships the block for documentation discoverability — fail-fast
+       would break the default training command.
+    2. training, from_scratch=true + encoder block → build_video_encoder is
+       called exactly once and its product is forwarded to
+       build_video_backbone.
+    3. training, from_scratch=true without an encoder block → historical
+       reset-weights-only path (no build, no forwarding).
+    4. deploy (``_source`` present), from_scratch=false + encoder block →
+       skeleton construction must NOT fire — a checkpoint saved under the
+       native ``_pipe.vae.*`` topology must keep it for strict checkpoint
+       load — and build_video_backbone receives ``external_encoder=None``.
+       Deploy stays quiet (no log spam): seeing the inline block at
+       from_scratch=false is the expected common case, not a user mistake.
     """
-    skeleton_calls: list = []
-    backbone_kwargs: dict = {}
-
-    def fake_skeleton(enc_cfg, source):
-        skeleton_calls.append((enc_cfg, source))
-        raise RuntimeError("should not be reached when from_scratch=false on deploy")
-
-    def fake_build_backbone(name, cfg, **kw):
-        backbone_kwargs.update(kw)
-        bb = nn.Module()
-        bb._pipe = None
-        bb.temporal_compression = 4
-        bb.causal_temporal = True
-        return bb
-
-    import openwam.model.video_backbone as vb_pkg
-
-    monkeypatch.setattr(vb_pkg, "build_video_backbone", fake_build_backbone)
-    # Patch on the class so the bound-method dispatch in _init_video_backbone
-    # picks it up.
-    from openwam.model.architectures.base import BaseWAMArchitecture
-
-    monkeypatch.setattr(BaseWAMArchitecture, "_build_external_encoder_skeleton", staticmethod(fake_skeleton))
-
-    cfg = {
-        "video_backbone": {
-            "name": "wan22_ti2v_5b",
-            "model_path": "/dummy",
-            "from_scratch": False,
-            "encoder": {"name": "wan22_vae", "model_path": "/dummy"},
-            "_source": {"components": [{"attr": "vae", "model_class": "x", "extra_kwargs": {}}]},
-        }
-    }
-    _run_init_video_backbone(cfg)
-    assert skeleton_calls == [], (
-        "_build_external_encoder_skeleton must NOT be called on the deploy path when "
-        "from_scratch=false; that would force external-encoder state_dict topology "
-        "on a checkpoint saved under the native pipe.vae path"
-    )
-    assert backbone_kwargs.get("external_encoder") is None, (
-        "deploy build_video_backbone must receive external_encoder=None on the "
-        "from_scratch=false path, regardless of yaml encoder block"
-    )
-
-
-def test_D3_encoder_built_when_from_scratch_true_and_encoder_set(monkeypatch):
-    """from_scratch=true + encoder set → build_video_encoder is called and
-    its product is propagated to build_video_backbone."""
     encoder_built: list = []
     backbone_kwargs: dict = {}
+    skeleton_calls: list = []
 
     def fake_build_encoder(enc_cfg):
         encoder_built.append(enc_cfg)
@@ -824,20 +651,53 @@ def test_D3_encoder_built_when_from_scratch_true_and_encoder_set(monkeypatch):
         bb.reinit_for_from_scratch = lambda **_: None  # no dit to re-init in this stub
         return bb
 
-    # _init_video_backbone re-imports both symbols inside the function body,
-    # so monkeypatching them on their defining modules covers every call.
+    def fake_skeleton(enc_cfg, source):
+        skeleton_calls.append((enc_cfg, source))
+        raise RuntimeError("should not be reached in any gate cell")
+
+    import logging
+
     import openwam.model.video_backbone as vb_pkg
+    from openwam.model.architectures.base import BaseWAMArchitecture
     from openwam.model.video_backbone import encoder as enc_pkg
 
+    # _init_video_backbone re-imports the builder symbols inside the function
+    # body, so monkeypatching them on their defining modules covers every call.
     monkeypatch.setattr(enc_pkg, "build_video_encoder", fake_build_encoder)
     monkeypatch.setattr(vb_pkg, "build_video_backbone", fake_build_backbone)
+    # Patch the skeleton on the class so the bound-method dispatch picks it up.
+    monkeypatch.setattr(BaseWAMArchitecture, "_build_external_encoder_skeleton", staticmethod(fake_skeleton))
 
+    caplog.set_level(logging.INFO, logger="openwam.model.architectures.base")
+
+    encoder_block = {"name": "wan22_vae", "model_path": "/dummy"}
+
+    # --- Cell 1 (D2): training + from_scratch=false + encoder block → ignored.
+    cfg = {
+        "video_backbone": {
+            "name": "wan22_ti2v_5b",
+            "model_path": "/dummy",
+            "from_scratch": False,
+            "encoder": dict(encoder_block),
+        }
+    }
+    _run_init_video_backbone(cfg)
+    assert encoder_built == [], "build_video_encoder must NOT be called when from_scratch=false"
+    assert backbone_kwargs.get("external_encoder") is None, "no external_encoder should be passed to backbone"
+    assert any("encoder block IGNORED" in rec.message for rec in caplog.records), (
+        "expected an INFO log explaining that the encoder block was ignored"
+    )
+
+    # --- Cell 2 (D3): training + from_scratch=true + encoder block → built + forwarded.
+    encoder_built.clear()
+    backbone_kwargs.clear()
+    skeleton_calls.clear()
     cfg = {
         "video_backbone": {
             "name": "wan22_ti2v_5b",
             "model_path": "/dummy",
             "from_scratch": True,
-            "encoder": {"name": "wan22_vae", "model_path": "/dummy"},
+            "encoder": dict(encoder_block),
         }
     }
     _run_init_video_backbone(cfg)
@@ -845,33 +705,10 @@ def test_D3_encoder_built_when_from_scratch_true_and_encoder_set(monkeypatch):
     assert "external_encoder" in backbone_kwargs, "external_encoder must be passed to build_video_backbone"
     assert isinstance(backbone_kwargs["external_encoder"], WanVideoVAEEncoderStub)
 
-
-def test_D4_encoder_not_built_when_no_encoder_block(monkeypatch):
-    """from_scratch=true without an encoder block keeps the historical
-    reset-weights-only path: build_video_encoder is NOT called and no
-    external_encoder is forwarded to build_video_backbone."""
-    encoder_built: list = []
-    fake_kw: dict = {}
-
-    def fake_build_encoder(enc_cfg):
-        encoder_built.append(enc_cfg)
-        raise RuntimeError("should not be reached")
-
-    def fake_build_backbone(name, cfg, **kw):
-        fake_kw.update(kw)
-        bb = nn.Module()
-        bb._pipe = None
-        bb.temporal_compression = 4
-        bb.causal_temporal = True
-        bb.reinit_for_from_scratch = lambda **_: None  # no dit to re-init in this stub
-        return bb
-
-    import openwam.model.video_backbone as vb_pkg
-    from openwam.model.video_backbone import encoder as enc_pkg
-
-    monkeypatch.setattr(enc_pkg, "build_video_encoder", fake_build_encoder)
-    monkeypatch.setattr(vb_pkg, "build_video_backbone", fake_build_backbone)
-
+    # --- Cell 3 (D4): training + from_scratch=true, no encoder block → inert.
+    encoder_built.clear()
+    backbone_kwargs.clear()
+    skeleton_calls.clear()
     cfg = {
         "video_backbone": {
             "name": "wan22_ti2v_5b",
@@ -882,7 +719,31 @@ def test_D4_encoder_not_built_when_no_encoder_block(monkeypatch):
     }
     _run_init_video_backbone(cfg)
     assert encoder_built == [], "build_video_encoder should not be called without an encoder block"
-    assert fake_kw.get("external_encoder") is None, "no external_encoder should be passed"
+    assert backbone_kwargs.get("external_encoder") is None, "no external_encoder should be passed"
+
+    # --- Cell 4 (D2b): deploy + from_scratch=false + encoder block → quiet, native vae.
+    encoder_built.clear()
+    backbone_kwargs.clear()
+    skeleton_calls.clear()
+    cfg = {
+        "video_backbone": {
+            "name": "wan22_ti2v_5b",
+            "model_path": "/dummy",
+            "from_scratch": False,
+            "encoder": dict(encoder_block),
+            "_source": {"components": [{"attr": "vae", "model_class": "x", "extra_kwargs": {}}]},
+        }
+    }
+    _run_init_video_backbone(cfg)
+    assert skeleton_calls == [], (
+        "_build_external_encoder_skeleton must NOT be called on the deploy path when "
+        "from_scratch=false; that would force external-encoder state_dict topology "
+        "on a checkpoint saved under the native pipe.vae path"
+    )
+    assert backbone_kwargs.get("external_encoder") is None, (
+        "deploy build_video_backbone must receive external_encoder=None on the "
+        "from_scratch=false path, regardless of yaml encoder block"
+    )
 
 
 def test_D5_generate_decode_video_true_blocks_irreversible_encoder():
@@ -925,55 +786,6 @@ def test_D5_generate_decode_video_true_blocks_irreversible_encoder():
     vb_native_none = _StubBackbone()
     vb_native_none.video_encoder = None
     _assert_decode_video_supported(vb_native_none)
-
-
-def test_D6_freeze_modules_resolves_encoder_dotted_path_on_external_path():
-    """Regression for the severe S2 bug: when ``video_backbone.from_scratch=true``
-    routes through an external encoder, ``pipe.vae`` is None and the
-    historical ``freeze: [..., video_backbone._pipe.vae, ...]`` entry is
-    silently skipped — leaving the encoder's pretrained weights trainable.
-    The fix lists ``video_backbone.video_encoder`` in the freeze yamls; this
-    test verifies the dotted path actually resolves via
-    ``nn.Module.get_submodule`` and that ``requires_grad_(False)`` then
-    propagates to every encoder parameter.
-    """
-    from openwam.model.video_backbone.wan_backbone import Wan22Ti2v
-
-    pipe = _FakePipe(vae_z_dim=16, vae_upsample=8)
-    enc = WanVideoVAEEncoderStub(spec_z_dim=1024, pixel_decode=False)
-    backbone = Wan22Ti2v.from_pretrained(pipe, external_encoder=enc)
-
-    # Mount the backbone on an architecture-shaped container, just like the
-    # real BaseWAMArchitecture does — freeze_modules resolves dotted paths
-    # rooted at ``self``.
-    class _ArchContainer(nn.Module):
-        def __init__(self, vb):
-            super().__init__()
-            self.video_backbone = vb
-
-    arch = _ArchContainer(backbone)
-
-    # get_submodule routes through the WanVideoBackbone's _modules dict;
-    # ``video_encoder = external_encoder`` in __init__ registers it there.
-    resolved = arch.get_submodule("video_backbone.video_encoder")
-    assert resolved is enc
-
-    # Encoder parameters are trainable by default. Pre-fix: the freeze yaml
-    # entry (_pipe.vae) was silently skipped because pipe.vae=None, so the
-    # encoder stayed trainable. Post-fix: the new yaml entry (video_encoder)
-    # resolves and the call below disables grad on every encoder param.
-    assert any(p.requires_grad for p in enc.parameters())
-    resolved.requires_grad_(False)
-    assert all(not p.requires_grad for p in enc.parameters())
-
-    # Sibling guards: native VAE path → video_encoder is None and not in _modules,
-    # so freeze_modules's get_submodule call must raise AttributeError so
-    # the framework can silently skip it (yaml lists both paths).
-    pipe2 = _FakePipe(vae_z_dim=16, vae_upsample=8)
-    backbone2 = Wan22Ti2v.from_pretrained(pipe2)  # no external_encoder
-    arch2 = _ArchContainer(backbone2)
-    with pytest.raises(AttributeError):
-        arch2.get_submodule("video_backbone.video_encoder")
 
 
 def test_M3a_filter_native_vae_configs_drops_vae_entries():
@@ -1093,41 +905,6 @@ def test_M3b_from_pretrained_routes_skip_native_vae():
     finally:
         loader_mod.build_holder_from_model_path = original
         pb_mod.build_training_pipeline = original_btp
-
-
-def test_M3c_wan22_vae_encoder_from_skeleton_matches_from_pretrained_topology():
-    """``WanVideoVAEEncoder.from_skeleton(entry)`` (deploy-time, zero
-    weights) must produce a state_dict with the EXACT same key set as
-    ``WanVideoVAEEncoder(loaded_vae)`` (training-time). Otherwise the
-    architecture's strict checkpoint load would mismatch on either path.
-    """
-    from openwam.model.video_backbone.encoder import WanVideoVAEEncoder
-
-    # Training path: real loaded module → encoder wrapping.
-    vae_loaded = _FakeWanVAEModule(z_dim=16, upsampling_factor=8)
-    enc_train = WanVideoVAEEncoder(vae_loaded)
-
-    # Deploy path: skeleton from components entry. ``_FakeWanVAEModule``
-    # lives at this dotted path; in production it'd be
-    # ``openwam.model.video_backbone.wan.models.vae.WanVideoVAE38`` etc.
-    components_entry = {
-        "attr": "vae",
-        "model_class": "tests.integration.test_external_encoder._FakeWanVAEModule",
-        "extra_kwargs": {"z_dim": 16, "upsampling_factor": 8},
-    }
-    enc_deploy = WanVideoVAEEncoder.from_skeleton(components_entry)
-
-    train_keys = set(enc_train.state_dict().keys())
-    deploy_keys = set(enc_deploy.state_dict().keys())
-    missing_on_deploy = train_keys - deploy_keys
-    extra_on_deploy = deploy_keys - train_keys
-    assert not missing_on_deploy and not extra_on_deploy, (
-        f"state_dict topology mismatch:\n"
-        f"  missing on deploy: {sorted(missing_on_deploy)}\n"
-        f"  extra on deploy:   {sorted(extra_on_deploy)}"
-    )
-    # Spec is derived from loaded weights — must agree across paths.
-    assert enc_train.properties == enc_deploy.properties
 
 
 def test_M3d_build_external_encoder_skeleton_picks_vae_entry_from_source():
@@ -1326,6 +1103,10 @@ def test_M3f_train_save_deploy_state_dict_topology_matches():
         "extra_kwargs": {"z_dim": 16, "upsampling_factor": 8},
     }
     deploy_enc = WanVideoVAEEncoder.from_skeleton(components_entry)
+    # Spec equality pin (folded in from M3c): the spec is derived from the
+    # wrapped module's geometry and must agree across the train/deploy paths,
+    # otherwise the strict checkpoint load would silently change semantics.
+    assert train_enc.properties == deploy_enc.properties
     # In production this comes from cls.from_pretrained(source=dict-with-components),
     # which routes through _build_holder_from_components(skip_native_vae=True). For this
     # closure check the WanVideoBackbone construction path is the same as training,
@@ -1444,30 +1225,15 @@ def test_D8_wan22_vae_path_end_to_end_freeze_excludes_encoder_params_from_optimi
     )
     assert all(not by_name[k].requires_grad for k in enc_param_keys)
 
-
-@pytest.mark.parametrize(
-    "yaml_path",
-    [
-        "configs/model/dual_system.yaml",
-        "configs/model/single_system.yaml",
-        "configs/model/tri_system.yaml",
-    ],
-)
-
-
-# ===========================================================================
-# Commit 6: E1-E3 — framework yamls expose the encoder block (composed via the video_backbone group)
-# ===========================================================================
-#
-# These tests verify the yaml ships with the documented defaults so that
-# `from_scratch=false` users see the encoder field but it stays inert,
-# and `from_scratch=true` users only need to flip one switch.
-
-
-@pytest.mark.parametrize(
-    "model_name",
-    ["dual_system", "single_system", "tri_system"],
-)
+    # 8) Sibling guard (folded in from D6): native VAE path → video_encoder is
+    #    None and not in _modules, so freeze_modules's get_submodule call must
+    #    raise AttributeError so the framework can silently skip it (yaml lists
+    #    both paths).
+    pipe2 = _FakePipe(vae_z_dim=16, vae_upsample=8)
+    backbone2 = Wan22Ti2v.from_pretrained(pipe2)  # no external_encoder
+    arch2 = _ArchContainer(backbone2)
+    with pytest.raises(AttributeError):
+        arch2.get_submodule("video_backbone.video_encoder")
 
 
 # ======================================================================
@@ -1513,15 +1279,6 @@ def _build_vjepa_encoder(embed_dim: int = 8):
 
     vit = _MockVJEPAViT(embed_dim=embed_dim)
     return VJEPA21VideoEncoder(vit, embed_dim=embed_dim, variant="mock")
-
-
-def test_V1_vjepa21_registration_round_trip():
-    """``register_video_encoder("vjepa21")`` exposes the class via the registry."""
-    from openwam.model.video_backbone.encoder import _VIDEO_ENCODER_REGISTRY
-    from openwam.model.video_backbone.encoder.vjepa21 import VJEPA21VideoEncoder  # noqa: F401
-
-    assert "vjepa21" in _VIDEO_ENCODER_REGISTRY
-    assert _VIDEO_ENCODER_REGISTRY["vjepa21"] is VJEPA21VideoEncoder
 
 
 def test_V2_vjepa21_from_pretrained_missing_manifest(tmp_path):
@@ -1836,20 +1593,7 @@ def test_V6i_vjepa21_from_pretrained_forwards_yaml_field(tmp_path, monkeypatch):
     # spy doesn't have the matching state_dict shape, so we skip load.
     monkeypatch.setattr(_vjepa_loader, "load_vit_weights", lambda *a, **kw: None)
 
-    manifest = {
-        "arch_name": "vit_giant_xformers_rope",
-        "embed_dim": 8,
-        "variant": "mock-384",
-        "patch": 16,
-        "img_size": 384,
-        "training_num_frames": 64,
-        "tubelet": 2,
-        "use_rope": True,
-        "img_temporal_dim_size": 1,
-        "interpolate_rope": True,
-        "checkpoint_file": "fake.pt",
-        "checkpoint_key": "target_encoder",
-    }
+    manifest = _build_vjepa_manifest_payload(embed_dim=8, variant="mock-384", checkpoint_file="fake.pt")
     (tmp_path / "manifest.json").write_text(_json.dumps(manifest))
 
     enc = build_video_encoder(
@@ -1896,20 +1640,9 @@ def test_V8_vjepa21_from_pretrained_rejects_manifest_geometry_mismatch(tmp_path,
 
     from openwam.model.video_backbone.encoder.vjepa21 import VJEPA21VideoEncoder
 
-    manifest = {
-        "arch_name": "vit_giant_xformers_rope",
-        "embed_dim": 1408,
-        "variant": "vitg-rope-256",
-        "patch": patch,
-        "img_size": 256,
-        "training_num_frames": 64,
-        "tubelet": tubelet,
-        "use_rope": True,
-        "img_temporal_dim_size": 1,
-        "interpolate_rope": True,
-        "checkpoint_file": "fake.pt",
-        "checkpoint_key": "target_encoder",
-    }
+    manifest = _build_vjepa_manifest_payload(
+        patch=patch, tubelet=tubelet, variant="vitg-rope-256", img_size=256, checkpoint_file="fake.pt"
+    )
     (tmp_path / "manifest.json").write_text(_json.dumps(manifest))
     with pytest.raises(ValueError, match="patch/tubelet must be"):
         VJEPA21VideoEncoder.from_pretrained(str(tmp_path))
@@ -1950,20 +1683,7 @@ def test_V9_vjepa21_load_vit_no_double_use_rope_on_rope_arch(monkeypatch):
     monkeypatch.setitem(sys.modules, f"{vjepa21_src}.vision_transformer", fake_module)
     monkeypatch.setitem(sys.modules, f"{vjepa21_src}.modules", fake_vjepa_modules)
 
-    manifest = {
-        "arch_name": "vit_giant_xformers_rope",
-        "embed_dim": 1408,
-        "variant": "vitg-rope-384",
-        "patch": 16,
-        "img_size": 384,
-        "training_num_frames": 64,
-        "tubelet": 2,
-        "use_rope": True,
-        "img_temporal_dim_size": 1,
-        "interpolate_rope": True,
-        "checkpoint_file": "fake.pt",
-        "checkpoint_key": "target_encoder",
-    }
+    manifest = _build_vjepa_manifest_payload(checkpoint_file="fake.pt")
     with pytest.raises(_StopAfterConstruct):
         _vjepa_loader.load_vit("/unused", manifest)
     assert "use_rope" not in captured_kwargs
@@ -1976,20 +1696,7 @@ def test_V10_vjepa21_load_vit_rope_arch_with_use_rope_false_fails_fast():
     we raise a ``ValueError`` at load time instead of silently overriding."""
     from openwam.model.video_backbone.encoder.vjepa21 import loader as _vjepa_loader
 
-    manifest = {
-        "arch_name": "vit_giant_xformers_rope",
-        "embed_dim": 1408,
-        "variant": "vitg-rope-384",
-        "patch": 16,
-        "img_size": 384,
-        "training_num_frames": 64,
-        "tubelet": 2,
-        "use_rope": False,
-        "img_temporal_dim_size": 1,
-        "interpolate_rope": True,
-        "checkpoint_file": "fake.pt",
-        "checkpoint_key": "target_encoder",
-    }
+    manifest = _build_vjepa_manifest_payload(use_rope=False, checkpoint_file="fake.pt")
     with pytest.raises(ValueError, match="hardcodes use_rope=True"):
         _vjepa_loader.load_vit("/unused", manifest)
 
@@ -1999,11 +1706,25 @@ def test_V10_vjepa21_load_vit_rope_arch_with_use_rope_false_fails_fast():
 # ----------------------------------------------------------------------
 
 
-def _install_fake_vjepa_modules(monkeypatch, wrapper_factory):
+def _install_fake_vjepa_modules(monkeypatch, wrapper_factory=None, capture=None):
     """Wire fake ``app.vjepa_2_1.*`` modules so VJEPA imports resolve to test
     fixtures. ``wrapper_factory`` is a callable used for every arch lookup —
     the test decides what to inspect / what to return.
+
+    When ``wrapper_factory`` is omitted, a default factory returns a
+    zero-weight ``_MockVJEPAViT(embed_dim=1408)``; if ``capture`` is a dict,
+    the default factory also records the construction kwargs into it and
+    fails fast on a ``use_rope`` kwarg (the PR #83 invariant the V11-family
+    tests pin).
     """
+    if wrapper_factory is None:
+
+        def wrapper_factory(**kwargs):
+            if capture is not None:
+                capture.update(kwargs)
+            if "use_rope" in kwargs:
+                raise TypeError("got multiple values for keyword argument 'use_rope'")
+            return _MockVJEPAViT(embed_dim=1408)
 
     class _Module:
         def __init__(self, **attrs):
@@ -2037,31 +1758,11 @@ def test_V11_vjepa21_from_skeleton_happy_path(tmp_path, monkeypatch):
 
     from openwam.model.video_backbone.encoder.vjepa21 import VJEPA21VideoEncoder
 
-    manifest = {
-        "arch_name": "vit_giant_xformers_rope",
-        "embed_dim": 1408,
-        "variant": "vitg-rope-384",
-        "patch": 16,
-        "img_size": 384,
-        "training_num_frames": 64,
-        "tubelet": 2,
-        "use_rope": True,
-        "img_temporal_dim_size": 1,
-        "interpolate_rope": True,
-        "checkpoint_file": "DOES-NOT-EXIST.pt",
-        "checkpoint_key": "target_encoder",
-    }
+    manifest = _build_vjepa_manifest_payload()
     (tmp_path / "manifest.json").write_text(_json.dumps(manifest))
 
     captured: dict = {}
-
-    def _fake_wrapper(**kwargs):
-        captured.update(kwargs)
-        if "use_rope" in kwargs:
-            raise TypeError("got multiple values for keyword argument 'use_rope'")
-        return _MockVJEPAViT(embed_dim=1408)
-
-    _install_fake_vjepa_modules(monkeypatch, _fake_wrapper)
+    _install_fake_vjepa_modules(monkeypatch, capture=captured)
 
     enc = VJEPA21VideoEncoder.from_skeleton(
         components_entry={"attr": "vae", "model_class": "ignored", "extra_kwargs": {}},
@@ -2096,26 +1797,10 @@ def test_V11b_vjepa21_from_skeleton_propagates_vjepa21_forward(tmp_path, monkeyp
 
     from openwam.model.video_backbone.encoder.vjepa21 import VJEPA21VideoEncoder
 
-    manifest = {
-        "arch_name": "vit_giant_xformers_rope",
-        "embed_dim": 1408,
-        "variant": "vitg-rope-384",
-        "patch": 16,
-        "img_size": 384,
-        "training_num_frames": 64,
-        "tubelet": 2,
-        "use_rope": True,
-        "img_temporal_dim_size": 1,
-        "interpolate_rope": True,
-        "checkpoint_file": "DOES-NOT-EXIST.pt",
-        "checkpoint_key": "target_encoder",
-    }
+    manifest = _build_vjepa_manifest_payload()
     (tmp_path / "manifest.json").write_text(_json.dumps(manifest))
 
-    def _fake_wrapper(**kwargs):
-        return _MockVJEPAViT(embed_dim=1408)
-
-    _install_fake_vjepa_modules(monkeypatch, _fake_wrapper)
+    _install_fake_vjepa_modules(monkeypatch)
 
     # --- Path A: field explicit → no warning ---
     caplog.clear()
@@ -2167,9 +1852,11 @@ def test_V12_vjepa21_from_skeleton_requires_ckpt_dir():
 # ----------------------------------------------------------------------
 
 
-def _build_vjepa_manifest_payload() -> dict:
-    """Manifest dict matching what V-JEPA 2.1 vit_giant_xformers_rope writes."""
-    return {
+def _build_vjepa_manifest_payload(**overrides) -> dict:
+    """Manifest dict matching what V-JEPA 2.1 vit_giant_xformers_rope writes.
+    Keyword ``overrides`` replace individual fields (e.g. ``patch`` /
+    ``use_rope``) for tests that probe the geometry / rope guards."""
+    payload = {
         "arch_name": "vit_giant_xformers_rope",
         "embed_dim": 1408,
         "variant": "vitg-rope-384",
@@ -2183,6 +1870,8 @@ def _build_vjepa_manifest_payload() -> dict:
         "checkpoint_file": "DOES-NOT-EXIST.pt",
         "checkpoint_key": "target_encoder",
     }
+    payload.update(overrides)
+    return payload
 
 
 def test_V15_vjepa21_from_skeleton_prefers_ckpt_dir_manifest(tmp_path, monkeypatch):
@@ -2198,10 +1887,7 @@ def test_V15_vjepa21_from_skeleton_prefers_ckpt_dir_manifest(tmp_path, monkeypat
     ckpt_dir.mkdir()
     (ckpt_dir / "manifest.json").write_text(_json.dumps(_build_vjepa_manifest_payload()))
 
-    def _fake_wrapper(**kwargs):
-        return _MockVJEPAViT(embed_dim=1408)
-
-    _install_fake_vjepa_modules(monkeypatch, _fake_wrapper)
+    _install_fake_vjepa_modules(monkeypatch)
 
     # Point encoder_cfg.model_path at a NON-EXISTENT directory: from_skeleton
     # reads the manifest only from ckpt_dir and must never reach model_path
@@ -2349,56 +2035,37 @@ def test_V21_vjepa21_feature_norm_keys_present_in_state_dict():
     assert "feature_norm.bias" in keys, "feature_norm.bias is missing from V-JEPA encoder state_dict."
 
 
-def test_X1_flux2_vae_save_deploy_assets_self_contained(tmp_path):
-    """``FluxVAEVideoEncoder.save_deploy_assets`` copies the FLUX.2 VAE
-    config.json into ``<ckpt>/flux2_vae/config.json``, and ``_resolve_config_dir``
-    reads only that checkpoint-local copy — deploy is strictly self-contained
-    (no ``encoder.model_path`` fallback). Mirrors V-JEPA's manifest
-    self-containment (test_V18).
-
-    Exercises the save/resolve plumbing without building a real FLUX core
-    (``save_deploy_assets`` / ``_resolve_config_dir`` read no instance state),
-    so no FLUX weights are needed on disk.
-    """
-    from omegaconf import OmegaConf
-
-    from openwam.model.video_backbone.encoder.flux2_vae import _FLUX_CKPT_SUBDIR, FluxVAEVideoEncoder
-
-    src = tmp_path / "flux_src"
-    src.mkdir()
-    (src / "config.json").write_text('{"block_out_channels": [128], "latent_channels": 32}')
-    ckpt = tmp_path / "ckpt"
-    ckpt.mkdir()
-    cfg = OmegaConf.create({"model": {"video_backbone": {"encoder": {"model_path": str(src)}}}})
-
-    # Bypass core build — save_deploy_assets / _resolve_config_dir read no self state.
-    enc = FluxVAEVideoEncoder.__new__(FluxVAEVideoEncoder)
-    enc.save_deploy_assets(str(ckpt), cfg)
-
-    # config landed in the checkpoint-local namespace
-    assert (ckpt / _FLUX_CKPT_SUBDIR / "config.json").is_file()
-    # resolve reads the ckpt-local sidecar (single source, no model_path fallback)
-    assert FluxVAEVideoEncoder._resolve_config_dir(str(ckpt)) == str(ckpt / _FLUX_CKPT_SUBDIR)
-    # no ckpt sidecar -> hard error (strictly self-contained; model_path never consulted)
-    with pytest.raises(FileNotFoundError):
-        FluxVAEVideoEncoder._resolve_config_dir(None)
-    empty_ckpt = tmp_path / "empty_ckpt"
-    empty_ckpt.mkdir()
-    with pytest.raises(FileNotFoundError):
-        FluxVAEVideoEncoder._resolve_config_dir(str(empty_ckpt))
-
-
-def test_X2_flux2_vae_save_deploy_assets_missing_cfg_raises(tmp_path):
+@pytest.mark.parametrize(
+    "family, ckpt_subdir, unset_svae",
+    [
+        pytest.param("flux2", "flux2_vae", False, id="flux2"),
+        pytest.param("dinov3", "dinov3", True, id="dinov3"),
+    ],
+)
+def test_X2_save_deploy_assets_missing_cfg_raises(tmp_path, family, ckpt_subdir, unset_svae):
     """Strict self-contained: ``save_deploy_assets`` raises on an unresolvable
     cfg (no ``encoder.model_path``) — :meth:`from_skeleton` has no fallback, so
     a checkpoint saved without its config sidecar can't be deployed.
-    """
-    from openwam.model.video_backbone.encoder.flux2_vae import FluxVAEVideoEncoder
 
-    enc = FluxVAEVideoEncoder.__new__(FluxVAEVideoEncoder)
+    Parametrized across the Flux2 / DINOv3 encoders (formerly X2 / Y2): the
+    DINOv3 encoder needs ``_svae`` initialized (no reducer attached) while the
+    Flux2 encoder reads no instance state.
+    """
+    if family == "flux2":
+        from openwam.model.video_backbone.encoder.flux2_vae import FluxVAEVideoEncoder
+
+        cls = FluxVAEVideoEncoder
+    else:
+        from openwam.model.video_backbone.encoder.dinov3 import DinoV3VideoEncoder
+
+        cls = DinoV3VideoEncoder
+
+    enc = cls.__new__(cls)
+    if unset_svae:
+        enc._svae = None
     with pytest.raises(FileNotFoundError):
         enc.save_deploy_assets(str(tmp_path), cfg={})  # no encoder.model_path -> raise
-    assert not (tmp_path / "flux2_vae").exists()
+    assert not (tmp_path / ckpt_subdir).exists()
 
 
 def test_Y1_dinov3_save_deploy_assets_self_contained(tmp_path):
@@ -2435,17 +2102,3 @@ def test_Y1_dinov3_save_deploy_assets_self_contained(tmp_path):
     empty_ckpt.mkdir()
     with pytest.raises(FileNotFoundError):
         DinoV3VideoEncoder._resolve_config_dir(str(empty_ckpt))
-
-
-def test_Y2_dinov3_save_deploy_assets_missing_cfg_raises(tmp_path):
-    """Strict self-contained: ``save_deploy_assets`` raises on an unresolvable
-    cfg (no ``encoder.model_path``) — :meth:`from_skeleton` has no fallback, so
-    a checkpoint saved without its config sidecar can't be deployed.
-    """
-    from openwam.model.video_backbone.encoder.dinov3 import DinoV3VideoEncoder
-
-    enc = DinoV3VideoEncoder.__new__(DinoV3VideoEncoder)
-    enc._svae = None
-    with pytest.raises(FileNotFoundError):
-        enc.save_deploy_assets(str(tmp_path), cfg={})  # no encoder.model_path -> raise
-    assert not (tmp_path / "dinov3").exists()

@@ -469,8 +469,9 @@ def test_DS7_deploy_sidecar_write_and_read(tmp_path):
     out.mkdir()
     # save_deploy_assets is strictly self-contained: it copies the DINOv3
     # config.json from encoder.model_path (hard error if absent) AND writes the
-    # S-VAE sidecar. Provide a dummy config.json so the call succeeds; this test
-    # asserts on the S-VAE sidecar half.
+    # S-VAE sidecar. Provide a dummy config.json so the call succeeds; the
+    # assertions below cover both the S-VAE sidecar half and the DINOv3
+    # config-copy half.
     src = tmp_path / "enc_src"
     src.mkdir()
     (src / "config.json").write_text("{}")
@@ -480,6 +481,14 @@ def test_DS7_deploy_sidecar_write_and_read(tmp_path):
         )
     )
     red.save_deploy_assets(str(out), cfg)
+
+    # Config-copy half (folded in from the integration suite's flux2/dinov3
+    # self-containment coverage): the DINOv3 config.json lands in the
+    # checkpoint-local namespace and _resolve_config_dir reads only that copy.
+    from openwam.model.video_backbone.encoder.dinov3 import _DINOV3_CKPT_SUBDIR, DinoV3VideoEncoder
+
+    assert (out / _DINOV3_CKPT_SUBDIR / "config.json").is_file()
+    assert DinoV3VideoEncoder._resolve_config_dir(str(out)) == str(out / _DINOV3_CKPT_SUBDIR)
 
     sidecar = out / "svae_config.json"
     assert sidecar.exists()
