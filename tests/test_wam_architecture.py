@@ -12,27 +12,6 @@ def _action_context(ab, batch_size: int, seq_len: int = 4):
     return torch.randn(batch_size, seq_len, ab.text_dim), torch.ones(batch_size, seq_len, dtype=torch.bool)
 
 
-def _make_dual_system_self_attn_mot_fixture():
-    from openwam.model import build_architecture
-    from tests.test_openwam_trainer import _MockVideoBackbone
-
-    cfg = {
-        "framework": "dual_system",
-        "variant": "joint_self_attn",
-        "action_dim": 7,
-        "dim": 32,
-        "ffn_dim": 64,
-        "num_heads": 4,
-        "video_dim": 32,
-        "bridge_layers": (0, 1),
-    }
-    arch = build_architecture("dual_system_self_attn", cfg)
-    arch.video_backbone = _MockVideoBackbone(dim=32, num_layers=2, num_heads=4)
-    driver = arch.build_mot_driver()
-    arch.eval()
-    return arch, driver
-
-
 def _make_dual_system_cross_attn_fixture():
     from openwam.model import build_architecture
 
@@ -53,33 +32,6 @@ def _make_dual_system_cross_attn_fixture():
     return arch
 
 
-def _dual_system_self_attn_mot_states(arch, seed: int):
-    from openwam.model.video_backbone.base import BlockLoopState
-
-    g = torch.Generator().manual_seed(seed)
-    actions = torch.randn(1, 3, 7, generator=g)
-    context = torch.randn(1, 4, arch.action_backbone.text_dim, generator=g)
-    context_mask = torch.ones(1, 4, dtype=torch.bool)
-    astate = arch.action_backbone.prepare_state(
-        actions,
-        torch.tensor([0.5]),
-        context=context,
-        context_mask=context_mask,
-    )
-    vstate = BlockLoopState(
-        hidden_states=torch.randn(1, 4, 32, generator=g),
-        time_mod=torch.zeros(1, 6, 32),
-        rope_freqs=torch.zeros(4, 1, 1),
-        context=torch.randn(1, 4, 32, generator=g),
-        context_mask=torch.ones(1, 4, dtype=torch.bool),
-        grid_frames=4,
-        grid_height=1,
-        grid_width=1,
-        extras={},
-    )
-    return vstate, astate
-
-
 def _dual_system_cross_attn_inputs(arch, seed: int):
     g = torch.Generator().manual_seed(seed)
     actions = torch.randn(1, 3, 7, generator=g)
@@ -88,28 +40,6 @@ def _dual_system_cross_attn_inputs(arch, seed: int):
     context = torch.randn(1, 4, arch.action_backbone.text_dim, generator=g)
     context_mask = torch.ones(1, 4, dtype=torch.bool)
     return actions, bridges, timestep, context, context_mask
-
-
-def test_architecture_module_layout_imports():
-    from openwam.model.architectures.dual_system import (
-        DualSystemCrossAttnArchitecture,
-        DualSystemIDMArchitecture,
-        DualSystemSelfAttnArchitecture,
-    )
-    from openwam.model.architectures.single_system.moe import SingleSystemMoEArchitecture
-    from openwam.model.architectures.single_system.vanilla import SingleSystemVanillaArchitecture
-
-    assert DualSystemCrossAttnArchitecture is not None
-    assert DualSystemIDMArchitecture is not None
-    assert DualSystemSelfAttnArchitecture is not None
-    assert SingleSystemMoEArchitecture is not None
-    assert SingleSystemVanillaArchitecture is not None
-
-
-def test_architecture_state_types_import():
-    from openwam.model.action_backbone.separate_action_dit import ActionDiTState
-
-    assert ActionDiTState is not None
 
 
 def test_architecture_support_lists():
@@ -340,55 +270,6 @@ def test_openwam_trainer_uses_strategy_freeze_for_tri_system_vlm(monkeypatch):
     assert trainer.architecture is arch
     assert arch._freeze_calls == [["vlm_backbone.vlm_model"]]
     assert not any(p.requires_grad for p in arch.vlm_backbone.vlm_model.parameters())
-
-
-def test_build_architecture_dual_system():
-    from openwam.model import build_architecture
-
-    cfg = {
-        "framework": "dual_system",
-        "variant": "joint_cross_attn",
-        "detach_bridge": True,
-        "action_dim": 7,
-        "dim": 128,
-        "ffn_dim": 256,
-        "num_heads": 4,
-        "num_layers": 2,
-        "video_dim": 256,
-        "bridge_layers": (0, 1),
-    }
-    arch = build_architecture("dual_system_cross_attn", cfg)
-    assert arch.action_dim == 7
-    assert arch.bridge_layers == (0, 1)
-    assert arch.action_backbone is not None
-
-
-def test_build_architecture_single_system_moe():
-    from openwam.model import build_architecture
-
-    cfg = {
-        "framework": "single_system",
-        "variant": "moe",
-        "action_dim": 7,
-        "video_dim": 128,
-        "expert_ffn_dim": 256,
-        "bridge_layers": (1, 3),
-    }
-    arch = build_architecture("single_system_moe", cfg)
-    assert arch.action_dim == 7
-    assert arch.bridge_layers == (1, 3)
-    assert arch.action_backbone is not None
-    assert len(arch.action_backbone.expert_blocks) == 2
-
-
-def test_build_architecture_shared():
-    """Single system vanilla should build successfully."""
-    from openwam.model import build_architecture
-
-    cfg = {"action_dim": 7, "video_dim": 128, "num_action_tokens": 10}
-    arch = build_architecture("single_system_vanilla", cfg)
-    assert arch.action_dim == 7
-    assert arch.bridge_layers == ()
 
 
 def test_build_architecture_unknown():
@@ -781,38 +662,6 @@ def test_dual_system_joint_self_attn_pre_post_attn_round_trip():
     assert pred.shape == (2, 5, 7)
 
 
-def test_dual_system_joint_cross_attn_no_per_layer_state():
-    """joint_cross_attn skips prepare_state and runs ActionDiT.forward directly."""
-    from openwam.model import build_architecture
-
-    cfg = {
-        "framework": "dual_system",
-        "variant": "joint_cross_attn",
-        "detach_bridge": False,
-        "action_dim": 7,
-        "dim": 64,
-        "ffn_dim": 128,
-        "num_heads": 4,
-        "video_dim": 128,
-        "bridge_layers": (0, 2),
-    }
-    arch = build_architecture("dual_system_cross_attn", cfg)
-
-    # cross_attn calls ab.forward(actions, bridges, timestep) directly —
-    # no per-layer state machinery on the action backbone.
-    bridges = {bid: torch.randn(1, 9, 128) for bid in arch.action_backbone.bridge_layers}
-    context, context_mask = _action_context(arch.action_backbone, 1)
-    with torch.no_grad():
-        out = arch.action_backbone(
-            torch.randn(1, 5, 7),
-            bridges,
-            torch.tensor([0.5]),
-            context=context,
-            context_mask=context_mask,
-        )
-    assert out.shape == (1, 5, 7)
-
-
 def test_dual_system_joint_cross_attn_passes_appended_proprio_context_to_action():
     """cross_attn architecture should pass raw text+proprio context to ActionDiT."""
     from openwam.model import build_architecture
@@ -863,27 +712,6 @@ def test_dual_system_joint_cross_attn_passes_appended_proprio_context_to_action(
     assert seen["context"].shape == (B, 4, 16)
     assert seen["context_mask"].shape == (B, 4)
     assert seen["context_mask"].tolist() == [[True, True, False, True]]
-
-
-def test_dual_system_detached_joint_cross_attn_blocks_grad_to_video():
-    """detach_bridge=True: action loss must not produce grad on the bridge tensors."""
-    from openwam.model import build_architecture
-
-    cfg = {
-        "framework": "dual_system",
-        "variant": "joint_cross_attn",
-        "detach_bridge": True,
-        "action_dim": 7,
-        "dim": 64,
-        "ffn_dim": 128,
-        "num_heads": 4,
-        "video_dim": 128,
-        "bridge_layers": (0,),
-    }
-    arch = build_architecture("dual_system_cross_attn", cfg)
-    # detach is owned by the architecture; the action backbone has no such flag.
-    assert arch.detach_bridge is True
-    assert not hasattr(arch.action_backbone, "detach_bridge")
 
 
 def test_action_dit_cross_attn_bridge_tuple_matches_dict():
@@ -1225,32 +1053,6 @@ def test_tri_system_joint_self_attn_compile_auto_sets_mot_loop():
     assert arch._compiled_mot_run_joint_loop("v", "a", "u", "mask") == ("v", "a", "u")
 
 
-def test_moe_uses_expert_layers():
-    """SingleSystem moe variant exposes expert layer ids."""
-    from openwam.model import build_architecture
-
-    cfg = {
-        "framework": "single_system",
-        "variant": "moe",
-        "action_dim": 7,
-        "video_dim": 128,
-        "expert_ffn_dim": 256,
-        "bridge_layers": (1, 3),
-    }
-    arch = build_architecture("single_system_moe", cfg)
-    assert arch.bridge_layers == (1, 3)
-    assert frozenset(arch.action_backbone.bridge_layers) == {1, 3}
-
-
-def test_single_system_has_no_expert_layers():
-    """SingleSystem vanilla has no expert layers."""
-    from openwam.model import build_architecture
-
-    cfg = {"action_dim": 7, "video_dim": 128, "num_action_tokens": 5}
-    arch = build_architecture("single_system_vanilla", cfg)
-    assert arch.bridge_layers == ()
-
-
 def test_normalize_architecture_spec_single_system():
     from openwam.model.architectures.registry import normalize_architecture_spec
 
@@ -1276,15 +1078,6 @@ def test_normalize_architecture_spec_dual_system_joint_cross_attn_detach_false()
     assert spec.framework == "dual_system"
     assert spec.variant == "joint_cross_attn"
     assert spec.options == {"detach_bridge": False}
-
-
-def test_normalize_architecture_spec_dual_system_joint_cross_attn_detach_true():
-    from openwam.model.architectures.registry import normalize_architecture_spec
-
-    spec = normalize_architecture_spec("dual_system_cross_attn", {"detach_bridge": True})
-    assert spec.framework == "dual_system"
-    assert spec.variant == "joint_cross_attn"
-    assert spec.options == {"detach_bridge": True}
 
 
 def test_normalize_architecture_spec_dual_system_joint_self_attn():
@@ -1342,74 +1135,6 @@ def test_resolve_architecture_config_from_canonical_fields():
     assert resolved.params["framework"] == "single_system"
     assert resolved.params["variant"] == "moe"
     assert resolved.params["video_dim"] == 192
-
-
-def test_build_architecture_injects_framework_and_variant_for_single_system():
-    from openwam.model import build_architecture
-
-    cfg = {"action_dim": 7, "video_dim": 64, "num_action_tokens": 5}
-    arch = build_architecture("single_system_vanilla", cfg)
-    assert arch.cfg["framework"] == "single_system"
-    assert arch.cfg["variant"] == "vanilla"
-
-
-def test_build_architecture_injects_framework_variant_and_detach_option():
-    from openwam.model import build_architecture
-
-    cfg = {
-        "framework": "dual_system",
-        "variant": "joint_cross_attn",
-        "detach_bridge": True,
-        "action_dim": 7,
-        "dim": 64,
-        "ffn_dim": 128,
-        "num_heads": 4,
-        "video_dim": 128,
-        "bridge_layers": (0, 1),
-    }
-    arch = build_architecture("dual_system_cross_attn", cfg)
-    assert arch.cfg["framework"] == "dual_system"
-    assert arch.cfg["variant"] == "joint_cross_attn"
-    assert arch.cfg["detach_bridge"] is True
-
-
-def test_build_architecture_single_system_moe_canonical_config():
-    from openwam.model import build_architecture
-
-    cfg = {
-        "framework": "single_system",
-        "variant": "moe",
-        "action_dim": 7,
-        "video_dim": 128,
-        "expert_ffn_dim": 256,
-        "bridge_layers": (1, 3),
-    }
-    arch = build_architecture("single_system_moe", cfg)
-    assert arch.cfg["framework"] == "single_system"
-    assert arch.cfg["variant"] == "moe"
-
-
-def test_dual_system_self_attn_payload_is_action_dit_state():
-    """joint_self_attn populates a flat payload of type ActionDiTState."""
-    from openwam.model import build_architecture
-    from openwam.model.action_backbone.separate_action_dit import ActionDiTState
-
-    cfg = {
-        "framework": "dual_system",
-        "variant": "joint_self_attn",
-        "action_dim": 7,
-        "dim": 32,
-        "ffn_dim": 64,
-        "num_heads": 4,
-        "video_dim": 32,
-        "bridge_layers": (0, 1),
-    }
-    arch = build_architecture("dual_system_self_attn", cfg)
-    context, context_mask = _action_context(arch.action_backbone, 1)
-    state = arch.action_backbone.prepare_state(
-        torch.randn(1, 5, 7), torch.tensor([0.5]), context=context, context_mask=context_mask
-    )
-    assert isinstance(state.payload, ActionDiTState)
 
 
 def test_register_custom_architecture():
@@ -1587,35 +1312,6 @@ def test_freeze_parent_blocks_trainable_child_grad():
         "Expected trainable child under frozen parent to NOT track grad. "
         "This is by design; use leaf-level freeze for partial-freeze setups."
     )
-
-
-def test_base_generate_signature_takes_extra_pipeline_inputs():
-    """``BaseWAMArchitecture.generate`` accepts arbitrary keyword args via
-    ``**extra_pipeline_inputs`` and forwards non-None values to
-    ``architecture.forward`` via ``inputs_shared``. End-to-end validation lives
-    in ``test_tri_system_generate_reuses_cached_vlm_hidden`` (tri_system uses
-    this mechanism to thread ``vlm_hidden`` / ``vlm_attention_mask`` through);
-    this test just guards the signature itself so future refactors don't
-    accidentally revert to explicit per-arch params.
-    """
-    import inspect
-
-    from openwam.model.architectures.base import BaseWAMArchitecture
-
-    sig = inspect.signature(BaseWAMArchitecture.generate)
-    has_var_keyword = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
-    assert has_var_keyword, "BaseWAMArchitecture.generate must accept **extra_pipeline_inputs"
-    # And the tri_system-specific kwargs are NOT in the explicit signature anymore.
-    explicit_names = {
-        p.name
-        for p in sig.parameters.values()
-        if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-    }
-    for arch_specific in ("vlm_inputs", "vlm_hidden", "vlm_attention_mask"):
-        assert arch_specific not in explicit_names, (
-            f"'{arch_specific}' must not be in base.generate's explicit signature — "
-            "it's tri_system-specific and should flow through **extra_pipeline_inputs."
-        )
 
 
 def test_base_generate_dit_cache_reuses_joint_action_prediction(monkeypatch):

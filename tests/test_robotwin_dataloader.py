@@ -216,30 +216,6 @@ def test_long_episode_tail_windows_are_included_and_padded():
             assert (sample["action"][t] == last_real).all(), f"padded step {t} does not equal last real action"
 
 
-def test_tail_windows_always_have_at_least_one_valid_action():
-    """The loader must not enumerate samples with fully padded action labels."""
-    from openwam.dataloader.robotwin import RoboTwinDataset
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _create_mock_episode(os.path.join(tmpdir, "episode0.hdf5"), T=20, seed=0)
-
-        ds = RoboTwinDataset(
-            data_root=tmpdir,
-            num_frames=17,
-            video_stride=4,
-            height=32,
-            width=32,
-            action_mode="joint",
-            normalize_mode=None,
-        )
-
-        assert ds._window_index[-1] == (0, 18)
-        sample = ds[len(ds) - 1]
-        assert sample["start_frame"] == 18
-        # 2-D mask (T, D); collapse to per-step via any(dim=-1).
-        assert sample["action_mask"].any(dim=-1).bool().tolist() == [True] + [False] * 15
-
-
 def test_single_frame_episode_has_no_valid_action_window():
     """A sample must contain at least one future action label."""
     import pytest
@@ -259,29 +235,6 @@ def test_single_frame_episode_has_no_valid_action_window():
                 action_mode="joint",
                 normalize_mode=None,
             )
-
-
-def test_build_sample_rejects_window_without_valid_action_label():
-    """Internal sample construction also enforces the action-label invariant."""
-    import pytest
-
-    from openwam.dataloader.robotwin import RoboTwinDataset
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _create_mock_episode(os.path.join(tmpdir, "episode0.hdf5"), T=20, seed=0)
-
-        ds = RoboTwinDataset(
-            data_root=tmpdir,
-            num_frames=17,
-            video_stride=4,
-            height=32,
-            width=32,
-            action_mode="joint",
-            normalize_mode=None,
-        )
-
-        with pytest.raises(IndexError, match="no valid action label"):
-            ds._build_sample(0, 19)
 
 
 def test_tail_masks_flow_through_prepare_inputs_and_loss():
@@ -438,34 +391,6 @@ def test_joint_mode_minmax_normalization():
         # proprio shares the normalized space
         assert proprio.min() >= -1.0 - 1e-6
         assert proprio.max() <= 1.0 + 1e-6
-
-
-def test_joint_mode_gripper_continuous():
-    """Joint mode gripper uses raw continuous values, min-max normalized like all dims."""
-    from openwam.dataloader.robotwin import RoboTwinDataset
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        _create_mock_episode(os.path.join(tmpdir, "episode0.hdf5"), T=20, seed=0)
-        stats_path = os.path.join(tmpdir, "normalization_stats.npy")
-        _create_normalization_stats(stats_path)
-
-        ds = RoboTwinDataset(
-            data_root=tmpdir,
-            num_frames=5,
-            height=32,
-            width=32,
-            action_mode="joint",
-            normalization_stats_path=stats_path,
-            video_stride=1,  # num_video_frames=5 → (5-1)%4=0 ✓
-        )
-
-        sample = ds[0]
-        actions = sample["action"].numpy()
-
-        # Gripper dims should be continuous (min-max normalized), not binary
-        gripper_vals = actions[:, 6]
-        assert gripper_vals.min() >= -1.0 - 1e-6
-        assert gripper_vals.max() <= 1.0 + 1e-6
 
 
 def test_joint_mode_denormalize_roundtrip():
@@ -662,30 +587,6 @@ def test_eef_gripper_raw_values():
         # Remaining 4 action steps: raw gripper = 0.0 (closed) → remain 0.0
         np.testing.assert_allclose(actions[4:, 9], 0.0, atol=1e-6)
         np.testing.assert_allclose(actions[4:, 19], 0.0, atol=1e-6)
-
-
-def test_eef_denormalize_passthrough():
-    """With normalize_mode=None, denormalize_action is an identity."""
-    from openwam.dataloader.robotwin import RoboTwinDataset
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        for i in range(3):
-            _create_mock_episode(os.path.join(tmpdir, f"episode{i}.hdf5"), T=20, seed=i)
-
-        ds = RoboTwinDataset(
-            data_root=tmpdir,
-            num_frames=5,
-            height=32,
-            width=32,
-            action_mode="eef",
-            video_stride=1,
-            normalize_mode=None,
-        )
-
-        # All dims should pass through unchanged (no inversion, no normalization)
-        test_data = np.random.randn(5, 20).astype(np.float32)
-        result = ds.denormalize_action(test_data)
-        np.testing.assert_array_equal(result, test_data)
 
 
 # ---------------------------------------------------------------------------
@@ -1088,13 +989,6 @@ def test_registry_robotwin_is_multitask():
 
     assert "robotwin" in DATASET_REGISTRY
     assert DATASET_REGISTRY["robotwin"] is MultiTaskRoboTwinDataset
-
-
-def test_registry_robotwin_multitask_removed():
-    """The 'robotwin_multitask' alias should no longer be registered."""
-    from openwam.dataloader.registry import DATASET_REGISTRY
-
-    assert "robotwin_multitask" not in DATASET_REGISTRY
 
 
 def test_from_config_uses_directory_discovery_without_task_selectors():

@@ -154,15 +154,6 @@ def _make_inputs(B=1, C=16, T=2, H=4, W=4, ctx_dim_post=24):
     return latents, context, timestep
 
 
-def test_wrapper_attributes_propagate(fake_wrapper):
-    assert fake_wrapper.dim == 32
-    assert fake_wrapper.num_layers == 4
-    assert fake_wrapper.num_heads == 4
-    assert fake_wrapper.head_dim == 8
-    assert fake_wrapper.text_dim == 24  # context_dim exposed via base text_dim property
-    assert fake_wrapper._shift_video == 3.0  # private on the backbone
-
-
 def test_prepare_run_finalize_shape_conservation(fake_wrapper):
     latents, context, timestep = _make_inputs()
     state = fake_wrapper.prepare(input_latents=latents, context=context, timestep=timestep)

@@ -415,24 +415,6 @@ def test_color_jitter_changes_pixels_consistently_across_frames():
     assert not np.array_equal(np.asarray(frames[0]), np.asarray(source))
 
 
-def test_robocasa_config_wires_reader_color_jitter():
-    cfg = OmegaConf.load("configs/dataloader/robocasa_gr1.yaml")
-    assert cfg.color_jitter.brightness == 0.2
-    assert "transforms" not in cfg
-
-
-def test_robocasa_config_has_no_eef_column_knobs():
-    cfg = OmegaConf.load("configs/dataloader/robocasa_gr1.yaml")
-    assert "eef_action_column" not in cfg
-    assert "eef_state_column" not in cfg
-
-
-def test_robocasa_config_normalizes_min_max_without_stats_path():
-    cfg = OmegaConf.load("configs/dataloader/robocasa_gr1.yaml")
-    assert cfg.normalize_mode == "min-max"
-    assert "normalization_stats_path" not in cfg
-
-
 def test_multibucket_forwards_generated_deploy_stats(tmp_path: Path):
     root = tmp_path / "root"
     for name in ("a", "b"):

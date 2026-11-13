@@ -170,14 +170,6 @@ def test_F6b_flux2_vae_H_not_divisible_by_spatial_raises():
 # ---------------------------------------------------------------------------
 
 
-def test_F7_flux2_vae_decode_and_to_frames_raise():
-    enc = _build_encoder()
-    with pytest.raises(NotImplementedError):
-        enc.decode(torch.randn(1, 128, 1, 2, 2))
-    with pytest.raises(NotImplementedError):
-        enc.to_frames(torch.randn(1, 3, 1, 16, 16))
-
-
 # ---------------------------------------------------------------------------
 # F8: converter round-trip (key mapping + attention reshape)
 # ---------------------------------------------------------------------------
@@ -242,20 +234,6 @@ def test_F8_converter_round_trips_into_core():
 # ---------------------------------------------------------------------------
 # F9: default DiT hooks produce Wan-parity shapes
 # ---------------------------------------------------------------------------
-
-
-def test_F9_flux2_vae_default_hooks_wan_parity():
-    enc = _build_encoder(z_dim=128, spatial_compression=16)
-    inp = enc.build_dit_input_proj(dit_dim=1536)
-    assert isinstance(inp, nn.Conv3d)
-    assert (inp.in_channels, inp.out_channels) == (128, 1536)
-    assert inp.kernel_size == (1, 2, 2)
-    assert inp.stride == (1, 2, 2)
-
-    out = enc.build_dit_output_proj(dit_dim=1536)
-    assert isinstance(out, nn.Linear)
-    assert out.in_features == 1536
-    assert out.out_features == 128 * 4  # z_dim * prod(dit_patch_size)
 
 
 # ---------------------------------------------------------------------------

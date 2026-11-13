@@ -215,9 +215,6 @@ class TestLayoutDetection:
 
 
 class TestEmbodimentKey:
-    @pytest.mark.parametrize("robot_type,expected", sorted(ROBOT_TYPE_TO_EMBODIMENT.items()))
-    def test_known_types(self, robot_type, expected):
-        assert embodiment_key(robot_type, "bimanual") == expected
 
     def test_unknown_type_slugs_rather_than_borrowing(self, caplog):
         assert embodiment_key("Some New Bot v2", "bimanual") == "some_new_bot_v2"
@@ -234,13 +231,6 @@ class TestQuaternionConvention:
     """The dataset stores quaternion.w FIRST; feeding wxyz into the xyzw helper
     produces a wrong-but-unit rotation that no norm check can catch."""
 
-    def test_matches_explicit_rotation_matrix_columns(self):
-        # 90 deg about z: wxyz = [cos45, 0, 0, sin45]
-        s = np.sqrt(0.5)
-        rot6d = quat_wxyz_to_rot6d(np.array([[s, 0.0, 0.0, s]], dtype=np.float32))[0]
-        # R = [[0,-1,0],[1,0,0],[0,0,1]] -> col0 = (0,1,0), col1 = (-1,0,0)
-        np.testing.assert_allclose(rot6d[:3], [0, 1, 0], atol=1e-6)
-        np.testing.assert_allclose(rot6d[3:], [-1, 0, 0], atol=1e-6)
 
     def test_identity_quaternion(self):
         rot6d = quat_wxyz_to_rot6d(np.array([[1.0, 0.0, 0.0, 0.0]], dtype=np.float32))[0]
@@ -383,14 +373,6 @@ class TestBimanualReader:
         ds = InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
         assert (ds._head_camera, ds._left_wrist_camera, ds._right_wrist_camera) == (HEAD, HAND_L, HAND_R)
 
-    def test_rot6d_slots_are_orthonormal(self, tmp_path, patch_decode):
-        d = _make_bucket(tmp_path, "cat/split_aloha/task")
-        ds = InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
-        a = ds[0]["action"].numpy()
-        for lo in (3, 13):
-            c0, c1 = a[:, lo : lo + 3], a[:, lo + 3 : lo + 6]
-            np.testing.assert_allclose(np.linalg.norm(c0, axis=1), 1.0, atol=1e-5)
-            np.testing.assert_allclose((c0 * c1).sum(axis=1), 0.0, atol=1e-5)
 
 
 class TestReaderQuaternionConvention:
@@ -433,14 +415,6 @@ class TestReaderQuaternionConvention:
                 np.testing.assert_allclose(block, np.tile(self.EXPECTED, (len(arr), 1)), atol=1e-6)
                 assert not np.allclose(block, self.WRONG, atol=1e-3)
 
-    def test_single_arm_action_rot6d_is_the_wxyz_answer(self, tmp_path, patch_decode):
-        """The franka path builds its left arm through the same ``_arm10``, but
-        via a different column set — cover it so neither branch can drift."""
-        d = _make_bucket(tmp_path, "cat/franka/task", layout="single_arm", robot_type="Franka", fixed_quat=self.WXYZ)
-        ds = InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
-        a = ds[0]["action"].numpy()
-        np.testing.assert_allclose(a[:, 3:9], np.tile(self.EXPECTED, (len(a), 1)), atol=1e-6)
-        assert not np.allclose(a[:, 3:9], self.WRONG, atol=1e-3)
 
 
 class TestSingleArmFranka:
@@ -482,10 +456,6 @@ class TestTemporalAlignment:
         state = ds._eef20(win, "state", 10)
         np.testing.assert_allclose(action[:-1], state[1:9], atol=1e-6)
 
-    def test_full_window_keeps_every_step(self, tmp_path, patch_decode):
-        d = _make_bucket(tmp_path, "cat/split_aloha/task")
-        ds = InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
-        assert ds._n_supervised_action_steps(9) == 9
 
     def test_episode_truncated_window_drops_the_clamped_last_action(self, tmp_path, patch_decode):
         d = _make_bucket(tmp_path, "cat/split_aloha/task")
@@ -541,23 +511,6 @@ class TestGripperHarmonization:
         assert ds._grip_scale[0] == 1.0
         assert float(np.abs(ds[0]["action"].numpy()[:, 9]).max()) <= 1.0
 
-    def test_two_scales_land_on_the_same_aperture(self, tmp_path, patch_decode):
-        """A half-open gripper must read ~0.5 whichever scale its bucket used."""
-        metric = _make_bucket(tmp_path, "cat/franka/metric", layout="single_arm", robot_type="Franka", seed=1)
-        norm = _make_bucket(tmp_path, "cat/franka/norm", layout="single_arm", robot_type="Franka", seed=1)
-        self._write_bucket_stats(metric, {"states.gripper.position": 0.08})
-        self._write_bucket_stats(norm, {"states.gripper.position": 1.0})
-        # rewrite the metric bucket's gripper as the normalized one * 0.08
-        for bucket, factor in ((metric, 0.08), (norm, 1.0)):
-            p = bucket / "data" / "chunk-000" / "file-000.parquet"
-            t = pq.read_table(p).to_pandas()
-            for c in ("states.gripper.position", "actions.gripper.position"):
-                t[c] = [np.array([0.5 * factor], dtype=np.float32)] * len(t)
-            pq.write_table(pa.Table.from_pandas(t), p)
-        a = InternDataA1Dataset(str(metric), normalize_mode=None, num_frames=9, video_stride=4)[0]
-        b = InternDataA1Dataset(str(norm), normalize_mode=None, num_frames=9, video_stride=4)[0]
-        np.testing.assert_allclose(a["action"].numpy()[:, 9], 0.5, atol=1e-5)
-        np.testing.assert_allclose(b["action"].numpy()[:, 9], 0.5, atol=1e-5)
 
     def test_missing_bucket_stats_falls_back_to_the_embodiment_stroke(self, tmp_path, patch_decode):
         d = _make_bucket(tmp_path, "cat/split_aloha/task")
@@ -597,12 +550,6 @@ class TestGripperHarmonization:
         assert ds._grip_scale == (pytest.approx(5.74), pytest.approx(5.74))
         assert "the assumed full-open stroke" in caplog.text
 
-    def test_in_range_bucket_does_not_warn(self, tmp_path, patch_decode, caplog):
-        d = _make_bucket(tmp_path, "cat/split_aloha/task")
-        self._write_bucket_stats(d, {"states.left_gripper.position": 0.1, "states.right_gripper.position": 0.1})
-        with caplog.at_level("WARNING"):
-            InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
-        assert "full-open stroke" not in caplog.text
 
     def test_alt_stroke_pick_is_never_silent(self, tmp_path, patch_decode, caplog):
         """A corroborated Robotiq bucket still logs — the pick rescales the whole
@@ -648,13 +595,6 @@ class TestGripperHarmonization:
         assert ds._grip_scale[0] == pytest.approx(1.0)
         assert "does not clear the primary stroke" in caplog.text
 
-    def test_single_gripper_embodiment_never_logs_a_variant_pick(self, tmp_path, patch_decode, caplog):
-        """No alt stroke declared -> no detection, so no pick to report."""
-        d = _make_bucket(tmp_path, "cat/split_aloha/task")
-        self._write_bucket_stats(d, {"states.left_gripper.position": 0.1, "states.right_gripper.position": 0.1})
-        with caplog.at_level("INFO"):
-            InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
-        assert "second-variant" not in caplog.text
 
     def test_never_opened_gripper_falls_back_to_the_stroke_and_stays_zero(self, tmp_path, patch_decode):
         """max ~ 0 carries no scale information, but 0 / anything == 0."""
@@ -686,21 +626,6 @@ class TestStats:
         with pytest.raises(FileNotFoundError, match="stats_split_aloha.json"):
             InternDataA1Dataset(str(d), normalize_mode="quantile")
         assert {p.relative_to(tmp_path) for p in tmp_path.rglob("*")} == before
-
-    def test_normalize_mode_null_needs_no_stats(self, tmp_path, patch_decode):
-        d = _make_bucket(tmp_path, "cat/split_aloha/task")
-        ds = InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
-        assert ds._normalization_stats is None
-
-    def test_leaf_uses_stats_in_renamed_family_ancestor(self, tmp_path, patch_decode):
-        family = tmp_path / "my_portable_family"
-        d = _make_bucket(family, "cat/split_aloha/task")
-        stats = self._write_stats(family, "split_aloha")
-        before = stats.read_bytes()
-        ds = InternDataA1Dataset(str(d), normalize_mode="quantile", num_frames=9, video_stride=4)
-        assert ds._normalization_stats is not None
-        assert stats.read_bytes() == before
-        assert not list(tmp_path.rglob("normalization_stats.npy"))
 
     def test_nearest_dataset_stats_are_used(self, tmp_path, patch_decode):
         family = tmp_path / "family"

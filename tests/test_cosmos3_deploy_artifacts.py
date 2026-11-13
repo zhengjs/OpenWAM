@@ -3,7 +3,7 @@
 save_deploy_assets must embed the vae component spec + copy the tokenizer's
 structural files when model_path is a readable bundle, write-once semantics on
 the components key, and no-op without mutation otherwise (the no-op case lives
-in test_cosmos3_api_hygiene).
+in test_cosmos_api_hygiene).
 """
 
 import json

@@ -155,6 +155,31 @@ class TestComputeActionLoss:
         # Different distribution over dims → different loss
         assert not torch.allclose(l_partial, l_full, atol=1e-5)
 
+    def test_2d_per_dim_mask_zeroes_gradient_on_masked_dims(self):
+        """Per-element masking contract: dims with action_is_pad=True receive
+        exactly zero gradient through the real implementation."""
+        torch.manual_seed(4)
+        B, T, D = 2, 4, 20
+        pred = torch.randn(B, T, D, requires_grad=True)
+        target = torch.randn(B, T, D)
+
+        dim_pad = torch.cat([torch.zeros(10, dtype=torch.bool), torch.ones(10, dtype=torch.bool)])
+        pad_2d = dim_pad.unsqueeze(0).unsqueeze(0).expand(B, T, -1).contiguous()
+
+        m = _ModelStub()
+        l = m._compute_action_loss(
+            noise_pred=pred,
+            target=target,
+            timestep_ids=torch.randint(0, 1000, (B,)),
+            scheduler=_SchedulerStub(),
+            inputs={"action_is_pad": pad_2d},
+            device="cpu",
+        )
+        l.backward()
+
+        assert (pred.grad[:, :, :10].abs() > 0).any()
+        assert torch.equal(pred.grad[:, :, 10:], torch.zeros_like(pred.grad[:, :, 10:]))
+
     def test_2d_all_false_mask_returns_zero(self):
         torch.manual_seed(4)
         B, T, D = 2, 4, 20

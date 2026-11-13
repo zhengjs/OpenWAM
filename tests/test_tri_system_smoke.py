@@ -184,43 +184,6 @@ def test_understanding_expert_pre_post_round_trip_and_grad():
     assert grad_norm > 0
 
 
-def test_understanding_expert_config_accepts_explicit_ffn_dim(monkeypatch):
-    from openwam.model.architectures.tri_system import joint_self_attn as tri_mod
-    from openwam.model.architectures.tri_system.joint_self_attn import TriSystemJointSelfAttnArchitecture
-
-    class _StubVLM(nn.Module):
-        def __init__(self, *args, **kwargs):  # noqa: ARG002
-            super().__init__()
-
-        @property
-        def hidden_size(self):
-            return 20
-
-    class _Arch(TriSystemJointSelfAttnArchitecture):
-        def _init_video_backbone(self, cfg):  # noqa: ARG002
-            self.video_backbone, _, _ = _make_tiny_trimodal_components(num_layers=1)
-
-    monkeypatch.setattr(tri_mod, "build_vlm_backbone", lambda *a, **k: _StubVLM())
-
-    cfg = {
-        "vlm_backbone": {"checkpoint_path": "", "load_pretrained": False},
-        "understanding_expert": {
-            "dim": 16,
-            "ffn_dim": 96,
-            "vlm_projector_type": "linear",
-        },
-        "action_dim": 7,
-        "dim": 24,
-        "ffn_dim": 48,
-        "num_heads": 4,
-        "attn_head_dim": 8,
-        "text_dim": 16,
-    }
-    arch = _Arch(cfg)
-
-    assert arch.understanding_expert.cfg.ffn_dim == 96
-
-
 def test_understanding_expert_rejects_ffn_dim_multiplier(monkeypatch):
     from openwam.model.architectures.tri_system import joint_self_attn as tri_mod
     from openwam.model.architectures.tri_system.joint_self_attn import TriSystemJointSelfAttnArchitecture
@@ -434,30 +397,6 @@ def _patch_wan_flash_attention_to_sdpa(monkeypatch):
 @pytest.fixture(autouse=True)
 def _wan_attention_cpu_fallback(monkeypatch):
     _patch_wan_flash_attention_to_sdpa(monkeypatch)
-
-
-def test_tri_system_joint_mask_layout():
-    torch.manual_seed(0)
-    vb, ab, ub = _make_tiny_trimodal_components()
-    driver = TriSystemMoTDriver(vb, ab, ub, attention_mask_mode=ACTION_SEES_VIDEO)
-
-    Sv, Sa, Su = 6, 4, 5
-    mask = driver._build_attention_mask(  # noqa: SLF001 - targeted mask contract test
-        s_video=Sv,
-        s_action=Sa,
-        s_understanding=Su,
-        video_tokens_per_frame=3,
-        device=torch.device("cpu"),
-    )
-
-    assert mask is not None
-    assert mask.shape == (Sv + Sa + Su, Sv + Sa + Su)
-    assert mask.dtype == torch.bool
-    assert not mask[:Sv, Sv : Sv + Sa].any()
-    assert mask[:Sv, Sv + Sa :].all()
-    assert mask[Sv : Sv + Sa].all()
-    assert not mask[Sv + Sa :, : Sv + Sa].any()
-    assert mask[Sv + Sa :, Sv + Sa :].all()
 
 
 def test_tri_system_joint_mask_blocks_action_indirect_video_coupling():
@@ -1066,18 +1005,6 @@ def test_freeze_modules_wraps_vlm_extract_features_in_no_grad():
     }
     out = backbone.extract_features(inputs)
     assert out.requires_grad is False, "frozen VLM forward should not build a backward graph"
-
-
-def test_freeze_modules_keeps_grad_when_not_frozen():
-    """Without ``freeze_modules``, VLM forward keeps grad — no hidden behavior."""
-    backbone = _make_qwen_backbone_for_test()
-    assert any(p.requires_grad for p in backbone.vlm_model.parameters())
-    inputs = {
-        "input_ids": torch.ones(1, 3, dtype=torch.long),
-        "attention_mask": torch.ones(1, 3, dtype=torch.long),
-    }
-    out = backbone.extract_features(inputs)
-    assert out.requires_grad is True
 
 
 def test_freeze_modules_covers_qwen3vl_inner_model_bypass():

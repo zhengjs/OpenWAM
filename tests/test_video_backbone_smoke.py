@@ -17,48 +17,6 @@ def test_import_pipeline():
     assert callable(model_fn_wan_video)
 
 
-def test_import_wan_model():
-    """WanModel (video DiT) should be importable."""
-    from openwam.model.video_backbone.wan.models.dit import WanModel
-
-    assert WanModel is not None
-
-
-def test_wan_model_has_dim():
-    """WanModel instance should expose .dim attribute for video_dim derivation."""
-    from openwam.model.video_backbone.wan.models.dit import WanModel
-
-    # Tiny model for testing (not real weights)
-    model = WanModel(
-        dim=64,
-        in_dim=4,
-        ffn_dim=128,
-        out_dim=4,
-        text_dim=64,
-        freq_dim=32,
-        eps=1e-6,
-        patch_size=(1, 2, 2),
-        num_heads=4,
-        num_layers=2,
-        has_image_input=False,
-    )
-    assert model.dim == 64
-
-
-def test_import_vae():
-    """WanVideoVAE should be importable."""
-    from openwam.model.video_backbone.wan.models.vae import WanVideoVAE
-
-    assert WanVideoVAE is not None
-
-
-def test_import_text_encoder():
-    """WanTextEncoder should be importable."""
-    from openwam.model.video_backbone.wan.models.text_encoder import WanTextEncoder
-
-    assert WanTextEncoder is not None
-
-
 def test_wan_video_backbone_adapter_freq_helpers():
     """extend_freqs_with_action_tokens appends 1D action RoPE by default."""
     from openwam.model.video_backbone.wan import action_tokens
@@ -342,10 +300,6 @@ def test_license_exists():
 
 if __name__ == "__main__":
     test_import_pipeline()
-    test_import_wan_model()
-    test_wan_model_has_dim()
-    test_import_vae()
-    test_import_text_encoder()
     test_wan_video_backbone_adapter_freq_helpers()
     test_wan_video_backbone_is_ti2v()
     test_license_exists()

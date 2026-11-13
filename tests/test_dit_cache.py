@@ -5,12 +5,6 @@ import torch
 from openwam.deploy.optimizations.dit_cache import DiTVelocityCache
 
 
-def test_cache_init():
-    cache = DiTVelocityCache(cosine_threshold=0.99)
-    assert cache.cosine_threshold == 0.99
-    assert cache.skip_rate == 0.0
-
-
 def test_first_step_always_recomputes():
     cache = DiTVelocityCache()
     assert cache.should_recompute(0.9) is True

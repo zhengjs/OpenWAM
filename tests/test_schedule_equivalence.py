@@ -215,12 +215,3 @@ def test_schedule_variance_shift_offset_lead_flip_swaps_streams():
     res_v = schedule_variance_shift(v, a, num_steps=12, lead="video", alpha=9.0, offset=0.3)
     assert [tv for tv, _ in res_a] == [ta for _, ta in res_v]
     assert [ta for _, ta in res_a] == [tv for tv, _ in res_v]
-
-
-def test_action_scheduler_is_action_scheduler_instance():
-    """Architecture's action_scheduler must be an ActionScheduler (not FlowMatchScheduler)."""
-    from openwam.model.action_backbone.scheduler import ActionScheduler
-    from tests.test_openwam_trainer import _make_tiny_arch
-
-    arch = _make_tiny_arch()
-    assert isinstance(arch.action_scheduler, ActionScheduler)

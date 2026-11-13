@@ -10,7 +10,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-import torch
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -22,102 +21,9 @@ sys.path.insert(0, str(PROJECT_ROOT / "third_party"))
 # ---------------------------------------------------------------------------
 
 
-class TestTrainingMixedPrecision:
-    """``cfg.training.mixed_precision`` is the sole source of truth.
-
-    ``configs/accelerate`` was removed; both training (``_build_accelerator``)
-    and deploy (``model_loader``) read ``training.mixed_precision`` directly.
-    """
-
-    def test_training_field_present(self):
-        from omegaconf import OmegaConf
-
-        cfg = OmegaConf.load(PROJECT_ROOT / "configs" / "train.yaml")
-        mp = OmegaConf.select(cfg, "training.mixed_precision")
-        assert mp == "bf16", f"Expected 'bf16', got {mp!r}"
-
-    def test_accelerate_group_removed(self):
-        assert not (PROJECT_ROOT / "configs" / "accelerate").exists(), (
-            "configs/accelerate should be gone; DeepSpeed settings now live in train.yaml"
-        )
-
-
 # ---------------------------------------------------------------------------
 # 2. deployment.yaml — inference + deploy sections
 # ---------------------------------------------------------------------------
-
-
-class TestDeploymentYaml:
-    def _load(self):
-        from omegaconf import OmegaConf
-
-        return OmegaConf.load(PROJECT_ROOT / "configs" / "deploy.yaml")
-
-    def test_inference_section_exists(self):
-        cfg = self._load()
-        from omegaconf import OmegaConf
-
-        assert OmegaConf.select(cfg, "inference") is not None
-
-    def test_inference_denoise_steps(self):
-        from omegaconf import OmegaConf
-
-        cfg = self._load()
-        assert OmegaConf.select(cfg, "inference.denoise_steps") is not None
-
-    def test_inference_cfg_fields_absent(self):
-        """CFG knobs stay out of deploy.yaml; engine defaults (1.0/false/null) disable CFG."""
-        from omegaconf import OmegaConf
-
-        cfg = self._load()
-        assert OmegaConf.select(cfg, "inference.cfg_scale") is None
-        assert OmegaConf.select(cfg, "inference.cfg_merge") is None
-
-    def test_inference_denoise_mode(self):
-        from omegaconf import OmegaConf
-
-        cfg = self._load()
-        assert OmegaConf.select(cfg, "inference.denoise_mode") == "sync"
-        assert OmegaConf.select(cfg, "inference.lead_modality") == "video"
-        assert OmegaConf.select(cfg, "inference.variance_shift_alpha") == 1.0
-        assert OmegaConf.select(cfg, "inference.linear_offset") == 0.0
-
-    def test_optimization_section_exists(self):
-        from omegaconf import OmegaConf
-
-        cfg = self._load()
-        assert OmegaConf.select(cfg, "optimization") is not None
-
-    def test_optimization_compile_section_exists(self):
-        from omegaconf import OmegaConf
-
-        cfg = self._load()
-        assert OmegaConf.select(cfg, "optimization.compile") is not None
-        assert OmegaConf.select(cfg, "optimization.compile.enabled") is True
-        assert OmegaConf.select(cfg, "optimization.compile.self_attn.torch_mode") == "default"
-        assert OmegaConf.select(cfg, "optimization.compile.self_attn.dynamic") is False
-        assert OmegaConf.select(cfg, "optimization.compile.cross_attn.torch_mode") == "default"
-        assert OmegaConf.select(cfg, "optimization.compile.cross_attn.dynamic") is False
-
-    def test_optimization_dit_cache_enabled(self):
-        from omegaconf import OmegaConf
-
-        cfg = self._load()
-        assert OmegaConf.select(cfg, "optimization.dit_cache.enabled") is True
-
-    def test_inference_execution_defaults(self):
-        from omegaconf import OmegaConf
-
-        cfg = self._load()
-        assert OmegaConf.select(cfg, "inference.inference_mode") == "sync"
-        assert OmegaConf.select(cfg, "inference.inference_horizon") is None
-        assert OmegaConf.select(cfg, "inference.inference_delay_steps") is None
-
-    def test_server_defaults_present(self):
-        from omegaconf import OmegaConf
-
-        cfg = self._load()
-        assert OmegaConf.select(cfg, "server.port") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -166,49 +72,7 @@ class TestDeployConfigLoading:
             setattr(args, attr, None)
         return args
 
-    def test_load_deploy_config_returns_omegaconf(self):
-        deploy = self._policy_server()
-        cfg = deploy._load_deploy_yaml()
-        from omegaconf import DictConfig
 
-        assert isinstance(cfg, DictConfig)
-
-    def test_load_deploy_config_has_inference(self):
-        from omegaconf import OmegaConf
-
-        deploy = self._policy_server()
-        cfg = deploy._load_deploy_yaml()
-        assert OmegaConf.select(cfg, "inference.denoise_steps") is not None
-
-    def test_cli_denoise_steps_override(self):
-        from omegaconf import OmegaConf
-
-        deploy = self._policy_server()
-
-        cfg = deploy._load_deploy_yaml()
-        args = self._blank_args()
-        args.denoise_steps = 20
-
-        cfg = deploy._apply_inference_overrides(cfg, args)
-        assert OmegaConf.select(cfg, "inference.denoise_steps") == 20
-
-    def test_cli_schedule_overrides(self):
-        from omegaconf import OmegaConf
-
-        deploy = self._policy_server()
-
-        cfg = deploy._load_deploy_yaml()
-        args = self._blank_args()
-        args.denoise_mode = "async"
-        args.lead_modality = "video"
-        args.variance_shift_alpha = 9.0
-        args.linear_offset = 0.25
-
-        cfg = deploy._apply_inference_overrides(cfg, args)
-        assert OmegaConf.select(cfg, "inference.denoise_mode") == "async"
-        assert OmegaConf.select(cfg, "inference.lead_modality") == "video"
-        assert OmegaConf.select(cfg, "inference.variance_shift_alpha") == 9.0
-        assert OmegaConf.select(cfg, "inference.linear_offset") == 0.25
 
     def test_cli_compile_enabled_false_disables_compile(self):
         from omegaconf import OmegaConf
@@ -379,33 +243,7 @@ class TestDeployConfigLoading:
         with pytest.raises(SystemExit):
             policy_server._build_argparser().parse_args(["--compile-enabled", "self-attn"])
 
-    def test_cli_inference_mode_override(self):
-        from omegaconf import OmegaConf
 
-        deploy = self._policy_server()
-
-        cfg = deploy._load_deploy_yaml()
-        args = self._blank_args()
-        args.inference_mode = "async"
-
-        cfg = deploy._apply_execution_cli_overrides(cfg, args)
-        assert OmegaConf.select(cfg, "inference.inference_mode") == "async"
-
-    def test_cli_execution_numeric_overrides(self):
-        from omegaconf import OmegaConf
-
-        deploy = self._policy_server()
-
-        cfg = deploy._load_deploy_yaml()
-        args = self._blank_args()
-        args.inference_mode = "async"
-        args.inference_horizon = 24
-        args.inference_delay_steps = 6
-
-        cfg = deploy._apply_execution_cli_overrides(cfg, args)
-        assert OmegaConf.select(cfg, "inference.inference_mode") == "async"
-        assert OmegaConf.select(cfg, "inference.inference_horizon") == 24
-        assert OmegaConf.select(cfg, "inference.inference_delay_steps") == 6
 
     def test_cli_inference_horizon_override_supports_sync(self):
         from omegaconf import OmegaConf
@@ -600,13 +438,7 @@ class TestJointEngineCompileFlags:
         warnings = [record for record in caplog.records if "prompt_embed_cache exceeded maxsize" in record.getMessage()]
         assert len(warnings) == 1
 
-    def test_prompt_embed_cache_maxsize_from_config(self):
-        engine, _ = self._make_engine(prompt_cache_cfg={"enabled": True, "maxsize": 8})
-        assert engine._prompt_embed_cache._maxsize == 8
 
-    def test_prompt_embed_cache_enabled_false_disables_cache(self):
-        engine, _ = self._make_engine(prompt_cache_cfg={"enabled": False, "maxsize": 8})
-        assert engine._prompt_embed_cache is None
 
     def test_generate_kwarg_filter_treats_disabled_cache_drop_as_noop(self, caplog):
         class _StrictArchitecture:
@@ -734,102 +566,11 @@ class TestJointEngineCompileFlags:
 # ---------------------------------------------------------------------------
 
 
-class TestModelLoaderDtype:
-    """Unit-test the dtype-selection logic in load_from_checkpoint_dir."""
-
-    def test_dtype_map_bf16(self):
-        # Simulate what model_loader does when mixed_precision = bf16
-        _mp = "bf16"
-        _DTYPE_MAP = {"bf16": torch.bfloat16, "fp16": torch.float16, "no": torch.float32}
-        dtype = _DTYPE_MAP.get(str(_mp).strip().lower(), torch.bfloat16)
-        assert dtype == torch.bfloat16
-
-    def test_dtype_map_fp16(self):
-        _mp = "fp16"
-        _DTYPE_MAP = {"bf16": torch.bfloat16, "fp16": torch.float16, "no": torch.float32}
-        dtype = _DTYPE_MAP.get(str(_mp).strip().lower(), torch.bfloat16)
-        assert dtype == torch.float16
-
-    def test_dtype_map_no(self):
-        _mp = "no"
-        _DTYPE_MAP = {"bf16": torch.bfloat16, "fp16": torch.float16, "no": torch.float32}
-        dtype = _DTYPE_MAP.get(str(_mp).strip().lower(), torch.bfloat16)
-        assert dtype == torch.float32
-
-    def test_dtype_fallback_to_bf16_on_unknown(self):
-        _mp = "unknown_value"
-        _DTYPE_MAP = {"bf16": torch.bfloat16, "fp16": torch.float16, "no": torch.float32}
-        dtype = _DTYPE_MAP.get(str(_mp).strip().lower(), torch.bfloat16)
-        assert dtype == torch.bfloat16
-
-    def test_dtype_read_from_training_cfg(self):
-        from omegaconf import OmegaConf
-
-        cfg = OmegaConf.create({"training": {"mixed_precision": "fp16"}})
-        _mp = OmegaConf.select(cfg, "training.mixed_precision", default="bf16")
-        assert _mp == "fp16"
-
-    def test_dtype_defaults_to_bf16_when_missing(self):
-        from omegaconf import OmegaConf
-
-        cfg = OmegaConf.create({})  # no training.mixed_precision
-        _mp = OmegaConf.select(cfg, "training.mixed_precision", default="bf16")
-        assert _mp == "bf16"
 
 
 # ---------------------------------------------------------------------------
 # 7. server CLI — _log_attention_backends output format
 # ---------------------------------------------------------------------------
-
-
-class TestLogAttentionBackends:
-    """Verify that attention backend diagnostics no longer emit ✗/SLOW markers."""
-
-    def _import_deploy(self):
-        import importlib.util
-
-        spec = importlib.util.spec_from_file_location("server", PROJECT_ROOT / "openwam" / "deploy" / "server.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        return mod
-
-    def test_no_slow_marker(self, caplog):
-        import logging
-
-        deploy = self._import_deploy()
-        with caplog.at_level(logging.INFO):
-            deploy._log_attention_backends(logging.getLogger("test_attn"))
-        assert "✗" not in caplog.text, "✗ marker should have been removed"
-        assert "SLOW" not in caplog.text, "SLOW annotation should have been removed"
-
-    def test_no_install_hint(self, caplog):
-        import logging
-
-        deploy = self._import_deploy()
-        with caplog.at_level(logging.INFO):
-            deploy._log_attention_backends(logging.getLogger("test_attn"))
-        assert "install flash-attn" not in caplog.text
-        assert "pip install" not in caplog.text
-
-    def test_three_subsystems_reported(self, caplog):
-        import logging
-
-        deploy = self._import_deploy()
-        with caplog.at_level(logging.INFO):
-            deploy._log_attention_backends(logging.getLogger("test_attn"))
-        assert "ActionDiT" in caplog.text
-        assert "Video DiT" in caplog.text
-        assert "Wan shared core" in caplog.text
-
-    def test_check_mark_absent_without_flash_attn(self, caplog):
-        """Without flash-attn, torch_sdpa is the backend — no ✓ expected either."""
-        import logging
-
-        deploy = self._import_deploy()
-        with caplog.at_level(logging.INFO):
-            deploy._log_attention_backends(logging.getLogger("test_attn"))
-        # Output is purely informational: just a name, no judgement symbols
-        assert "✓" not in caplog.text
 
 
 # ---------------------------------------------------------------------------

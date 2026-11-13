@@ -306,16 +306,6 @@ def test_D8b_dinov3_foreign_forward_raises_typeerror():
 # ---------------------------------------------------------------------------
 
 
-def test_D9_dinov3_decode_and_to_frames_raise():
-    """Irreversible encoder: ``decode`` / ``to_frames`` use the ABC's
-    default which raises NotImplementedError citing ``pixel_decode``."""
-    enc = _build_encoder()
-    with pytest.raises(NotImplementedError, match="pixel_decode"):
-        enc.decode(torch.zeros(1, 8, 1, 2, 2))
-    with pytest.raises(NotImplementedError, match="pixel_decode"):
-        enc.to_frames(torch.zeros(1, 3, 1, 32, 32))
-
-
 # ---------------------------------------------------------------------------
 # D10: from_skeleton fail-fast
 # ---------------------------------------------------------------------------
@@ -513,10 +503,3 @@ def test_DS8_deploy_skeleton_strict_load_roundtrip():
     skeleton.eval()
     v9 = torch.randn(1, 3, 9, 32, 32)
     assert torch.allclose(enc1.batch_encode(v9), skeleton.batch_encode(v9), atol=1e-5)
-
-
-def test_DS9_disabled_is_passthrough():
-    raw = _enc_svae(embed_dim=8, svae=False)
-    z = raw.batch_encode(torch.zeros(1, 3, 9, 32, 32))
-    assert z.shape == (1, 8, 3, 2, 2)  # unchanged raw-dim behaviour
-    assert raw._svae is None

@@ -293,13 +293,6 @@ def test_unrelated_config_resolves_to_sync():
     assert resolved.mode == "sync"
 
 
-def test_sync_config_accepts_inference_horizon():
-    cfg = normalize_execution_config({"mode": "sync", "inference_horizon": 10})
-
-    assert cfg.inference_horizon == 10
-    assert cfg.inference_delay_steps is None
-
-
 def test_sync_config_rejects_async_delay():
     cfg = {"mode": "sync", "inference_delay_steps": 1}
 

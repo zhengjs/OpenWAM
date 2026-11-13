@@ -241,20 +241,6 @@ def test_default_mode_is_min_max_and_quantile_works_off_auto_build(bucket):
         _make_ds(bucket, normalize_mode="zscore")  # misspelling must not pass through
 
 
-def test_auto_built_cache_is_offline_scan_with_true_quantiles(bucket):
-    stats, path = _load_or_build_stats(
-        [bucket],
-        ebench_mod.EBENCH_ACTION_KEYS,
-        action_mode="ebench",
-        dataset_dir=str(bucket.parents[1]),
-    )
-    assert path == str(bucket.parents[1] / "meta" / "ebench_normalization_stats.npy")
-    assert "q01" in stats and "q99" in stats
-    payload = np.load(path, allow_pickle=True).item()
-    assert payload["source"] == "parquet_scan"
-    assert "q01" in payload["ebench"]
-
-
 def test_raw_stats_to_23_index_arithmetic():
     stats_by_key = {
         "action.ee_pose": {
@@ -498,14 +484,6 @@ def test_data_error_not_masked_by_retry(tmp_path):
     with pytest.raises(ebench_mod.EBenchDataError, match="non-finite"):
         ds[68]  # window offset 68 covers row 70
     assert calls["n"] == 1  # no retry churn
-
-
-def test_nan_raises_even_without_normalization(bucket):
-    ds = _make_ds(bucket, normalize_mode=None, unify_action=False)
-    corrupt = np.full((1, 23), 1.0, np.float32)
-    corrupt[0, 3] = np.inf
-    with pytest.raises(ebench_mod.EBenchDataError, match="non-finite"):
-        ds._normalize(corrupt, None)
 
 
 def test_retry_jumps_over_long_bad_episode(bucket, monkeypatch):

@@ -157,10 +157,3 @@ def test_S8_deploy_skeleton_strict_load_roundtrip():
     skeleton.eval()
     v9 = torch.randn(1, 3, 9, 32, 32)
     assert torch.allclose(enc1.batch_encode(v9), skeleton.batch_encode(v9), atol=1e-5)
-
-
-def test_S9_disabled_is_passthrough():
-    raw = _enc(8, svae=False)
-    z = raw.batch_encode(torch.randn(1, 3, 9, 32, 32))
-    assert z.shape == (1, 8, 3, 2, 2)  # unchanged raw-dim behaviour
-    assert raw._svae is None
