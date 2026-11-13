@@ -47,31 +47,24 @@ def test_make_schedule_sync():
     assert result[-1] == (0.0, 0.0)
 
 
-def test_make_schedule_rejects_invalid_mode():
+def test_make_schedule_rejects_invalid():
     from openwam.deploy.denoise_schedule import make_schedule
 
     v, a = _two_stub_schedulers()
     with pytest.raises(ValueError, match="Unsupported denoise mode"):
         make_schedule("unsupported", v, a)
 
-
-@pytest.mark.parametrize(
-    ("kwargs", "match"),
-    [
+    # Invalid async parameters (alpha / offset guards).
+    for kwargs, match in [
         ({"alpha": 0.0}, "variance_shift_alpha must be >= 1"),
         ({"alpha": 0.5}, "variance_shift_alpha must be >= 1"),
         ({"alpha": float("nan")}, "variance_shift_alpha must be a finite number"),
         ({"offset": -0.1}, "linear_offset must satisfy"),
         ({"offset": 1.0}, "linear_offset must satisfy"),
         ({"offset": float("inf")}, "linear_offset must be a finite number"),
-    ],
-)
-def test_make_schedule_rejects_invalid_async_parameters(kwargs, match):
-    from openwam.deploy.denoise_schedule import make_schedule
-
-    v, a = _two_stub_schedulers()
-    with pytest.raises(ValueError, match=match):
-        make_schedule("async", v, a, **kwargs)
+    ]:
+        with pytest.raises(ValueError, match=match):
+            make_schedule("async", v, a, **kwargs)
 
 
 def test_make_schedule_sync_ignores_inactive_async_parameters():

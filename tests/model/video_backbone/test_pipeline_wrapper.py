@@ -154,8 +154,9 @@ def _make_inputs(B=1, C=16, T=2, H=4, W=4, ctx_dim_post=24):
     return latents, context, timestep
 
 
-def test_prepare_run_finalize_shape_conservation(fake_wrapper):
+def test_prepare_state_contract(fake_wrapper):
     latents, context, timestep = _make_inputs()
+    # Don't pass condition_mask / padding_mask — wrapper must synthesize zeros.
     state = fake_wrapper.prepare(input_latents=latents, context=context, timestep=timestep)
     assert isinstance(state, BlockLoopState)
     # Cosmos-specific extras are populated
@@ -174,13 +175,6 @@ def test_prepare_run_finalize_shape_conservation(fake_wrapper):
     out = fake_wrapper.finalize(state)
     # finalize produces (B, C, T, H, W) at input latent resolution
     assert out.shape == latents.shape
-
-
-def test_prepare_auto_fills_condition_and_padding_masks(fake_wrapper):
-    latents, context, timestep = _make_inputs()
-    # Don't pass condition_mask / padding_mask — wrapper must synthesize zeros.
-    state = fake_wrapper.prepare(input_latents=latents, context=context, timestep=timestep)
-    assert state.hidden_states.shape[-1] == fake_wrapper.dim
 
 
 def test_crossattn_projection_only_when_dim_matches_pre(fake_wrapper):

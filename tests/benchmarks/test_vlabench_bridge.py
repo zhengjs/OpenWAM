@@ -209,14 +209,14 @@ class TestIntentionScorePatch:
 
         return FakeEnv
 
-    def test_keyerror_becomes_nan(self):
+    def test_patch_intention_score_keyerror(self):
+        """The patched env must turn the KeyError into NaN while the normal
+        path keeps returning the raw score."""
         cls = self._fake_env_cls()
         _load_single_eval().patch_intention_score_keyerror(cls)
+        # KeyError from the positional tasks surfaces as NaN ...
         assert np.isnan(cls("keyerror").get_intention_score())
-
-    def test_normal_path_untouched(self):
-        cls = self._fake_env_cls()
-        _load_single_eval().patch_intention_score_keyerror(cls)
+        # ... and the normal path is untouched.
         assert cls("ok").get_intention_score(threshold=0.1) == 0.75
 
     def test_other_exceptions_still_propagate(self):

@@ -27,19 +27,15 @@ class TestMixtureConstruction:
         with pytest.raises(ValueError, match="at least one"):
             MixtureDataset([])
 
-    def test_all_zero_manual_weights_raises(self, fake_dataset_factory):
-        # Regression (M2): all-zero weights must raise a clear error instead of
-        # a bare ZeroDivisionError from the weight normalization.
+    def test_manual_weight_validation_raises(self, fake_dataset_factory):
+        """Regression (M2): all-zero weights must raise a clear error instead of
+        a bare ZeroDivisionError from the weight normalization, and a negative
+        weight must be rejected explicitly rather than silently treated as a
+        zero-weight skip in _build_index_map."""
         a = fake_dataset_factory(10)
         b = fake_dataset_factory(15)
         with pytest.raises(ValueError, match="zero-weight"):
             MixtureDataset([a, b], weights=[0.0, 0.0])
-
-    def test_negative_weight_raises(self, fake_dataset_factory):
-        # Regression (M2): a negative weight must be rejected explicitly rather
-        # than silently treated as a zero-weight skip in _build_index_map.
-        a = fake_dataset_factory(10)
-        b = fake_dataset_factory(15)
         with pytest.raises(ValueError, match="negative"):
             MixtureDataset([a, b], weights=[-1.0, 2.0])
 

@@ -158,26 +158,19 @@ def test_shared_mask_reaches_attention_and_isolates_action(padded_und):
     assert torch.isfinite(action_out).all()
 
 
-def test_inject_validates_shapes_and_timestep():
+def test_shared_token_guards():
+    """Validation gates around the shared-token API: inject validates the
+    timestep arg and action width, extract rejects a state without injected
+    shared tokens, and assert_ready_for_shared_tokens is a no-op on a plain
+    block-loop state."""
     net, vb = _build()
     ids = torch.tensor([1, 2])
     st = _state(net, ids, torch.randn(1, MINI["latent_channel"], 2, 2, 2))
+
     with pytest.raises(ValueError, match="timestep"):
         vb.inject_shared_tokens(st, torch.randn(1, 2, DIM), 2)
     with pytest.raises(ValueError, match="does not match"):
         vb.inject_shared_tokens(st, torch.randn(1, 2, DIM + 1), 2, timestep=torch.tensor([1.0]))
-
-
-def test_extract_rejects_inconsistent_lengths():
-    net, vb = _build()
-    ids = torch.tensor([1, 2])
-    st = _state(net, ids, torch.randn(1, MINI["latent_channel"], 2, 2, 2))
     with pytest.raises(ValueError, match="inject_shared_tokens"):
         vb.extract_shared_tokens(st, 0)
-
-
-def test_assert_ready_is_noop():
-    net, vb = _build()
-    ids = torch.tensor([1, 2])
-    st = _state(net, ids, torch.randn(1, MINI["latent_channel"], 2, 2, 2))
     assert vb.assert_ready_for_shared_tokens(st) is None

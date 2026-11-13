@@ -275,32 +275,18 @@ MIXTURE_ENTRIES = (
 
 
 class TestMixtureYamlComposition:
-    def test_mixture_includes_expected_entries(self):
+    def test_mixture_yaml_composition(self):
         from hydra import compose, initialize_config_dir
 
         config_dir = os.path.abspath("configs/dataloader")
         with initialize_config_dir(config_dir=config_dir, version_base=None):
             cfg = compose(config_name="mixture")
         assert tuple(cfg.datasets.keys()) == MIXTURE_ENTRIES
-
-    def test_blocks_inherit_dataset_dir(self):
-        from hydra import compose, initialize_config_dir
-
-        config_dir = os.path.abspath("configs/dataloader")
-        with initialize_config_dir(config_dir=config_dir, version_base=None):
-            cfg = compose(config_name="mixture")
         # Each entry inherits dataset_dir + type from its standalone yaml.
         for name in MIXTURE_ENTRIES:
             assert cfg.datasets[name].get("dataset_dir"), f"{name} missing dataset_dir"
             assert cfg.datasets[name].get("type") == name
             assert cfg.datasets[name].total_hours is None
-
-    def test_proportional_weight_strategy_default(self):
-        from hydra import compose, initialize_config_dir
-
-        config_dir = os.path.abspath("configs/dataloader")
-        with initialize_config_dir(config_dir=config_dir, version_base=None):
-            cfg = compose(config_name="mixture")
         assert cfg.weight_strategy == "proportional"
 
 

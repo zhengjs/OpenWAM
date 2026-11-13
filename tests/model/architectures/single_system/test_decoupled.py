@@ -154,7 +154,7 @@ def _make_moe(video_dim=64, num_layers=4, bridge_layers=(0, 2)):
     return arch
 
 
-def test_vanilla_forward_runs_full_block_loop_with_action_tokens():
+def test_vanilla_forward_wiring():
     arch = _make_vanilla(video_dim=64, num_layers=4)
     arch.eval()
     vb = arch.video_backbone
@@ -174,19 +174,8 @@ def test_vanilla_forward_runs_full_block_loop_with_action_tokens():
     assert action_pred.shape == (B, T, 7)
     assert video_pred is not None
 
-
-def test_vanilla_forward_passes_joint_mask_to_every_video_block():
-    arch = _make_vanilla(video_dim=64, num_layers=4)
-    arch.eval()
-    vb = arch.video_backbone
-
-    B, T = 1, 5
-    actions = torch.randn(B, T, 7)
-    timestep = torch.tensor([100.0])
-
-    with torch.no_grad():
-        arch.forward(actions, timestep)
-
+    # The joint shared-attention mask reaches every video block as the same
+    # tensor object.
     assert len(vb.seen_shared_attention_masks) == vb.num_layers
     assert all(mask is not None for mask in vb.seen_shared_attention_masks)
     first_mask = vb.seen_shared_attention_masks[0]

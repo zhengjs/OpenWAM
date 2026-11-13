@@ -19,7 +19,7 @@ def test_second_step_always_recomputes():
     assert cache.should_recompute(0.8) is True
 
 
-def test_cache_hit_with_similar_velocities():
+def test_velocity_cache_decisions():
     cache = DiTVelocityCache(cosine_threshold=0.9)
     v = torch.randn(1, 4, 8, 8)
 
@@ -30,6 +30,9 @@ def test_cache_hit_with_similar_velocities():
     assert cache.should_recompute(0.8) is False
     cached = cache.get_cached()
     assert cached.shape == v.shape
+    # But a joint caller that needs an action prediction must still recompute:
+    # no action was ever cached (both updates passed only velocity).
+    assert cache.should_recompute(0.8, require_action=True) is True
 
 
 def test_cache_hit_can_reuse_joint_action_prediction():
@@ -75,16 +78,6 @@ def test_cache_recomputes_when_action_velocity_diverges():
 
     assert cache.should_recompute(0.8, require_action=True) is True
     assert cache.stats["total_skips"] == 0
-
-
-def test_cache_requires_action_when_joint_caller_needs_it():
-    cache = DiTVelocityCache(cosine_threshold=0.9)
-    v = torch.randn(1, 4, 8, 8)
-
-    cache.update(v, 0.9)
-    cache.update(v * 1.01, 0.85)
-
-    assert cache.should_recompute(0.8, require_action=True) is True
 
 
 def test_cache_miss_with_different_velocities():

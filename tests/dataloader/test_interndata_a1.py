@@ -192,6 +192,13 @@ def patch_decode(monkeypatch):
     monkeypatch.setattr("openwam.dataloader.bases.lerobot_v3_reader._decode_video_frames", fake_decode)
 
 
+@pytest.fixture()
+def a1_dataset(tmp_path):
+    """Bimanual A1 bucket + reader shared verbatim by several reader tests."""
+    d = _make_bucket(tmp_path, "cat/split_aloha/task")
+    return InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
+
+
 # ---------------------------------------------------------------------------
 # Pure helpers
 # ---------------------------------------------------------------------------
@@ -355,9 +362,8 @@ class TestBucketDiscovery:
 
 
 class TestBimanualReader:
-    def test_all_20_dims_supervised(self, tmp_path, patch_decode):
-        d = _make_bucket(tmp_path, "cat/split_aloha/task")
-        ds = InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
+    def test_all_20_dims_supervised(self, a1_dataset, patch_decode):
+        ds = a1_dataset
         assert ds.arm_layout == "bimanual"
         assert ds.embodiment == "split_aloha"
         assert ds.ACTION_DIM_MASK is None
@@ -368,9 +374,8 @@ class TestBimanualReader:
         assert bool(s["proprio_mask"].all())
         assert s["prompt"] == "Close the microwave"
 
-    def test_resolves_three_cameras(self, tmp_path, patch_decode):
-        d = _make_bucket(tmp_path, "cat/split_aloha/task")
-        ds = InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
+    def test_resolves_three_cameras(self, a1_dataset, patch_decode):
+        ds = a1_dataset
         assert (ds._head_camera, ds._left_wrist_camera, ds._right_wrist_camera) == (HEAD, HAND_L, HAND_R)
 
 
@@ -457,9 +462,8 @@ class TestTemporalAlignment:
         np.testing.assert_allclose(action[:-1], state[1:9], atol=1e-6)
 
 
-    def test_episode_truncated_window_drops_the_clamped_last_action(self, tmp_path, patch_decode):
-        d = _make_bucket(tmp_path, "cat/split_aloha/task")
-        ds = InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
+    def test_episode_truncated_window_drops_the_clamped_last_action(self, a1_dataset, patch_decode):
+        ds = a1_dataset
         assert ds._n_supervised_action_steps(4) == 3
         assert ds._n_supervised_action_steps(1) == 0
 
@@ -512,9 +516,8 @@ class TestGripperHarmonization:
         assert float(np.abs(ds[0]["action"].numpy()[:, 9]).max()) <= 1.0
 
 
-    def test_missing_bucket_stats_falls_back_to_the_embodiment_stroke(self, tmp_path, patch_decode):
-        d = _make_bucket(tmp_path, "cat/split_aloha/task")
-        ds = InternDataA1Dataset(str(d), normalize_mode=None, num_frames=9, video_stride=4)
+    def test_missing_bucket_stats_falls_back_to_the_embodiment_stroke(self, a1_dataset, patch_decode):
+        ds = a1_dataset
         assert ds._grip_scale == (pytest.approx(0.1), pytest.approx(0.1))
 
     def test_single_gripper_embodiments_always_use_their_one_stroke(self, tmp_path, patch_decode):
