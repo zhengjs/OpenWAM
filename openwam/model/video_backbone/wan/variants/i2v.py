@@ -50,7 +50,16 @@ class I2VVariant(WanVariant):
         if needs_clip:
             clip_pieces = []
             for img in first_frame_image:
-                img_t = preprocess_image(img.resize((width, height)), dtype=bb.dtype, device=bb.device).to(device)
+                if torch.is_tensor(img):
+                    # Tensor path (ModelInputBatch): already [-1, 1] CHW on the
+                    # model grid — resize would be an identity at canvas size.
+                    if tuple(img.shape[-2:]) != (height, width):
+                        raise ValueError(
+                            f"tensor first frame {tuple(img.shape[-2:])} != model grid {(height, width)}"
+                        )
+                    img_t = img.to(dtype=bb.dtype, device=bb.device)
+                else:
+                    img_t = preprocess_image(img.resize((width, height)), dtype=bb.dtype, device=bb.device).to(device)
                 clip_pieces.append(image_encoder.encode_image([img_t]))
             clip_feature = torch.cat(clip_pieces, dim=0).to(dtype=dtype, device=device)
 

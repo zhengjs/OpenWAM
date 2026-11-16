@@ -40,6 +40,7 @@ import numpy as np
 import torch
 from torch import Tensor, nn
 
+from openwam.contracts.data_contract import ModelInputBatch
 from openwam.model.compile_options import compile_enabled
 
 
@@ -916,14 +917,16 @@ class BaseWAMArchitecture(BaseArchitecture):
         return self.video_backbone.preprocess_input_for_train(**kwargs)
 
     @torch.no_grad()
-    def prepare_inputs(self, batch: list[dict]) -> dict:
+    def prepare_inputs(self, batch) -> dict:
         """Aggregate a list of dataset samples into a batched inputs dict.
 
         The returned dict is designed to be
         unpacked directly into ``compute_loss`` via ``**inputs``.
 
         Args:
-            batch: List of dataset samples (each a dict). A single dict is
+            batch: List of dataset samples (each a dict), or a collated
+                ``ModelInputBatch`` from the contract pipeline (adapter →
+                preprocessor chain → ``contracts.collate``). A single dict is
                 accepted as well and treated as a one-sample batch.
 
         Returns:
@@ -932,6 +935,16 @@ class BaseWAMArchitecture(BaseArchitecture):
         """
         from openwam.dataloader.transforms.pipeline import FirstFrameConditioningTransform
         from openwam.model.architectures.utils.common import downsample_video_mask_to_latent
+
+        if isinstance(batch, dict):
+            batch = [batch]
+
+        if isinstance(batch, ModelInputBatch):
+            return self._prepare_model_batch(batch, downsample_video_mask_to_latent)
+
+        if not hasattr(self, "_pipeline_transform_instance"):
+            self._pipeline_transform_instance = FirstFrameConditioningTransform()
+        samples = [self._pipeline_transform_instance.apply(s) for s in batch]
 
         if isinstance(batch, dict):
             batch = [batch]
@@ -1088,6 +1101,68 @@ class BaseWAMArchitecture(BaseArchitecture):
             ]
             inputs["video_is_pad"] = torch.stack(latent_masks, dim=0).to(device=_device)
 
+        return inputs
+
+    def _prepare_model_batch(self, batch: ModelInputBatch, downsample_video_mask_to_latent) -> dict:
+        """``ModelInputBatch`` → compute_loss inputs. Tensor twin of the dict
+        path above: visuals go through the backbone's tensor entry (no PIL),
+        supervision/mask fields bridge from the collated tensors. Bit parity
+        with the dict path is pinned by
+        ``tests/integration/test_prepare_inputs_batch_parity.py``."""
+        _dtype = self.dtype
+        _device = self.device
+
+        video_backbone = getattr(self, "video_backbone", None)
+        if video_backbone is None or not hasattr(video_backbone, "preprocess_input_for_train_from_batch"):
+            raise TypeError(
+                "ModelInputBatch path requires a video backbone with the tensor entry "
+                "preprocess_input_for_train_from_batch (wan); "
+                f"got {type(video_backbone).__name__}"
+            )
+
+        prompts = list(batch.prompt) if batch.prompt is not None else None
+        preprocessed = video_backbone.preprocess_input_for_train_from_batch(
+            pixel_values=batch.pixel_values,
+            text=prompts,
+            # Track A readers always emit first_frame_image = video[0]; the
+            # tensor path slices the same first frame from the rescaled video.
+            has_first_frame=True,
+        )
+
+        actions = batch.gt_trajectory_norm
+        inputs = {
+            **preprocessed,
+            "latents": None,
+            "cfg_scale": 1,
+            "cfg_merge": False,
+            "tiled": False,
+            "use_gradient_checkpointing": self._use_gradient_checkpointing,
+            "use_gradient_checkpointing_offload": self._use_gradient_checkpointing_offload,
+            "max_timestep_boundary": self._max_timestep_boundary,
+            "min_timestep_boundary": self._min_timestep_boundary,
+            "actions": actions.to(dtype=_dtype, device=_device) if actions is not None else None,
+        }
+
+        # State / masks: collate already stacked and rank-reconciled these —
+        # pure dtype/device bridges (no per-sample loop).
+        if batch.ego_state_tensor is not None:
+            # collate promoted [D] → [B, 1, D]; the dict path carries [B, D].
+            inputs["proprio"] = batch.ego_state_tensor[:, 0].to(dtype=_dtype, device=_device).contiguous()
+            inputs["proprio_mask"] = batch.ego_state_mask.to(device=_device)
+        if batch.trajectory_mask is not None:
+            inputs["action_is_pad"] = (~batch.trajectory_mask).to(device=_device)
+        if batch.video_mask is not None:
+            skip_first = (
+                inputs.get("first_frame_latents") is not None or video_backbone.needs_first_frame_skip
+            )
+            temporal_factor = int(video_backbone.temporal_compression)
+            latent_masks = [
+                downsample_video_mask_to_latent(
+                    ~batch.video_mask[i], temporal_factor=temporal_factor, skip_first=skip_first
+                )
+                for i in range(batch.video_mask.shape[0])
+            ]
+            inputs["video_is_pad"] = torch.stack(latent_masks, dim=0).to(device=_device)
         return inputs
 
     # --- Training: loss computation ---

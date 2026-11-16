@@ -329,7 +329,16 @@ def build_i2v_y(*, first_frame_image: list, num_frames: int, height: int, width:
     vae_inputs = []
     msks = []
     for img in first_frame_image:
-        image = preprocess_image(img.resize((width, height)), dtype=dtype, device=device).to(device)  # (1, 3, H, W)
+        if torch.is_tensor(img):
+            # Tensor path (ModelInputBatch): [-1, 1] CHW on the model grid —
+            # same bits as the PIL branch at canvas size (resize is identity).
+            if tuple(img.shape[-2:]) != (height, width):
+                raise ValueError(
+                    f"tensor first frame {tuple(img.shape[-2:])} != model grid {(height, width)}"
+                )
+            image = img.unsqueeze(0).to(dtype=dtype, device=device)  # (1, 3, H, W)
+        else:
+            image = preprocess_image(img.resize((width, height)), dtype=dtype, device=device).to(device)  # (1, 3, H, W)
         vae_input = torch.cat(
             [image.transpose(0, 1), torch.zeros(3, num_frames - 1, height, width, device=device)],
             dim=1,

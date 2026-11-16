@@ -803,6 +803,18 @@ class WanBase(VideoBackbone):
             first_frame_image=kw.get("first_frame_image"),
         )
 
+        return self._merge_train_preprocess(
+            input_latents=input_latents,
+            context=context,
+            seq_lens=seq_lens,
+            height=height,
+            width=width,
+            num_frames=num_frames,
+            cond=cond,
+        )
+
+    def _merge_train_preprocess(self, *, input_latents, context, seq_lens, height, width, num_frames, cond) -> dict:
+        """Shared tail of both train-preprocess paths (PIL and tensor)."""
         return {
             "input_latents": input_latents,
             "context": context,
@@ -817,6 +829,81 @@ class WanBase(VideoBackbone):
             "clip_feature": cond.get("clip_feature"),
             "y": cond.get("y"),
         }
+
+    def preprocess_input_for_train_from_batch(
+        self, *, pixel_values, text, has_first_frame: bool = True, **kw
+    ) -> dict:
+        """Tensor-path twin of ``preprocess_input_for_train``: consumes the
+        collated ``ModelInputBatch`` visuals directly — ``pixel_values``
+        ``[B, T, C, H, W]`` float32 in [0, 1] — with NO PIL in the loop.
+
+        Bit parity with the PIL path holds by construction: the contract
+        guarantees ``fl(fl(u8/255) * 255) == u8`` exactly, so
+        ``(x * 255) * (2/255) - 1`` reproduces ``preprocess_image``'s
+        ``u8 * (2/255) - 1`` bit-for-bit (pinned by
+        ``tests/dataloader/test_robot_adapter_parity.py``).
+
+        Track A canvases arrive already on the model grid, so instead of the
+        PIL path's silent round-up this asserts divisibility — a violation is
+        a config error (fix the canvas size / layout), not a rescale.
+        """
+        height, width, num_frames = check_resize_height_width(
+            pixel_values.shape[3],
+            pixel_values.shape[4],
+            pixel_values.shape[1],
+            height_division_factor=self._height_division_factor,
+            width_division_factor=self._width_division_factor,
+            time_division_factor=self._time_division_factor,
+            time_division_remainder=self._time_division_remainder,
+        )
+        if height != pixel_values.shape[3] or width != pixel_values.shape[4] or num_frames != pixel_values.shape[1]:
+            raise ValueError(
+                f"tensor path requires model-grid-aligned inputs (canvas/layout config error): got "
+                f"T={pixel_values.shape[1]} H={pixel_values.shape[3]} W={pixel_values.shape[4]}, expected "
+                f"T={num_frames} H={height} W={width}"
+            )
+
+        batch_size = pixel_values.shape[0]
+        context, seq_lens = wan_encode.encode_text(
+            text, tokenizer=self._tokenizer, text_encoder=self.text_encoder, device=self.device
+        )
+
+        u8 = pixel_values * 255.0  # exact uint8 recovery (contract property)
+        stacked_inputs = (u8 * (2.0 / 255.0) - 1.0).to(dtype=self.dtype, device=self.device)
+        stacked_inputs = stacked_inputs.permute(0, 2, 1, 3, 4).contiguous()  # [B, C, T, H, W]
+        input_latents = wan_encode.encode_video(stacked_inputs, vae=self.vae, encoder=self.video_encoder)
+
+        # First-frame conditioning source: per-sample [C, H, W] slices of the
+        # SAME rescaled tensor — variants consume tensors natively (I2V/TI2V);
+        # VACE stays on the PIL dict path.
+        ref_images = (
+            [stacked_inputs[i, :, 0] for i in range(batch_size)] if has_first_frame else None
+        )
+        cond = self._variant.build_train_conditioning(
+            self,
+            input_latents=input_latents,
+            frames=None,
+            ref_images=ref_images,
+            vace_videos=None,
+            stacked_inputs=stacked_inputs,
+            B=batch_size,
+            num_frames=num_frames,
+            height=height,
+            width=width,
+            device=self.device,
+            dtype=self.dtype,
+            first_frame_image=kw.get("first_frame_image"),
+        )
+
+        return self._merge_train_preprocess(
+            input_latents=input_latents,
+            context=context,
+            seq_lens=seq_lens,
+            height=height,
+            width=width,
+            num_frames=num_frames,
+            cond=cond,
+        )
 
     # ================================================================
     # ABC: Sub-module access (1)
