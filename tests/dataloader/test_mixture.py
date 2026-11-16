@@ -533,3 +533,111 @@ def test_non_mixture_keeps_random_sampler(fake_dataset_factory):
     loader = _bare_trainer(fake_dataset_factory(8)).build_dataloader(batch_size=2)
 
     assert isinstance(loader.sampler, torch.utils.data.RandomSampler)
+
+
+class TestWeightAnnealing:
+    """Epoch-driven weight annealing (spec_data_zh.md §6.1)."""
+
+    def test_linear_alpha_endpoints(self, fake_dataset_factory):
+        m = MixtureDataset(
+            [fake_dataset_factory(100), fake_dataset_factory(100)],
+            seed=1,
+            anneal_start=[0.2, 1.0],
+            anneal_end=[1.0, 0.5],
+            anneal_schedule="linear",
+            num_epochs=10,
+        )
+        assert abs(sum(m.weights) - 1.0) < 1e-9
+        # alpha(0) = 0 -> weights at anneal_start
+        assert abs(m.weights[0] - 0.2 / 1.2) < 1e-9
+        m.set_epoch(9)
+        # alpha(9) = 1 -> weights at anneal_end
+        assert abs(m.weights[0] - 1.0 / 1.5) < 1e-9
+
+    def test_linear_midpoint_matches_closed_form(self, fake_dataset_factory):
+        m = MixtureDataset(
+            [fake_dataset_factory(100), fake_dataset_factory(100)],
+            seed=1,
+            anneal_start=[0.2, 1.0],
+            anneal_end=[1.0, 0.5],
+            anneal_schedule="linear",
+            num_epochs=10,
+        )
+        m.set_epoch(5)
+        a = 5 / 9
+        raw0 = 0.2 + 0.8 * a
+        raw1 = 1.0 - 0.5 * a
+        assert abs(m.weights[0] - raw0 / (raw0 + raw1)) < 1e-9
+
+    def test_cosine_alpha_endpoints(self, fake_dataset_factory):
+        m = MixtureDataset(
+            [fake_dataset_factory(100), fake_dataset_factory(100)],
+            seed=1,
+            anneal_start=[0.2, 1.0],
+            anneal_end=[1.0, 0.5],
+            anneal_schedule="cosine",
+            num_epochs=5,
+        )
+        m.set_epoch(4)  # alpha = 1 -> anneal_end exactly
+        assert abs(m.weights[0] - 1.0 / 1.5) < 1e-9
+
+    def test_horizon_injected_after_set_epoch(self, fake_dataset_factory):
+        """Resume-style order: set_epoch first (static weights + warn), then
+        set_num_epochs — the guard reset must let the next set_epoch rebuild."""
+        m = MixtureDataset(
+            [fake_dataset_factory(10), fake_dataset_factory(10)],
+            seed=1,
+            anneal_start=[0.0, 1.0],
+            anneal_end=[1.0, 0.0],
+            num_epochs=None,
+        )
+        assert m.weights[0] == 0.0
+        m.set_epoch(3)  # warns once; weights stay static
+        assert m.weights[0] == 0.0
+        m.set_num_epochs(4)
+        m.set_epoch(3)  # guard reset -> rebuild at alpha=1
+        assert abs(m.weights[0] - 1.0) < 1e-9
+
+    def test_zero_weight_source_rejoin_on_rebuild(self, fake_dataset_factory):
+        """A source skipped at weight 0 (alpha=0) is re-included once its
+        weight becomes positive and the index map is rebuilt."""
+        m = MixtureDataset(
+            [fake_dataset_factory(10), fake_dataset_factory(10)],
+            seed=1,
+            anneal_start=[0.0, 1.0],
+            anneal_end=[1.0, 0.0],
+            anneal_schedule="linear",
+            num_epochs=2,
+        )
+        m.set_epoch(1)  # alpha=1: source_0 takes over, source_1 drops
+        assert abs(m.weights[0] - 1.0) < 1e-9
+
+    def test_virtual_sample_conservation_across_epochs(self, fake_dataset_factory):
+        m = MixtureDataset(
+            [fake_dataset_factory(100), fake_dataset_factory(100)],
+            weights=[1.0, 1.0],
+            seed=1,
+            anneal_start=[0.2, 1.0],
+            anneal_end=[1.0, 0.5],
+            num_epochs=10,
+        )
+        sizes = [len(m) for _ in range(10)]
+        m.set_epoch(7)
+        assert abs(len(m) - sizes[0]) <= 2  # normalized weights conserve the total budget
+
+    @pytest.mark.parametrize(
+        ("kwargs", "match"),
+        [
+            ({"anneal_start": [0.2], "anneal_end": [1.0, 0.5]}, "anneal_start"),
+            ({"anneal_start": [0.2, -1.0], "anneal_end": [1.0, 0.5]}, "negative anneal_start"),
+            ({"anneal_start": [0.2, 1.0], "anneal_end": [1.0, 0.5], "anneal_schedule": "step"}, "schedule"),
+            ({"anneal_start": [0.2, 1.0], "anneal_end": [1.0, 0.5], "num_epochs": 0}, "num_epochs"),
+        ],
+    )
+    def test_validation_errors(self, fake_dataset_factory, kwargs, match):
+        with pytest.raises(ValueError, match=match):
+            MixtureDataset(
+                [fake_dataset_factory(5), fake_dataset_factory(5)],
+                seed=1,
+                **kwargs,
+            )

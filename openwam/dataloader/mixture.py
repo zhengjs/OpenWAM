@@ -8,6 +8,7 @@ selected source name with every item.
 
 import copy
 import logging
+import math
 from typing import Dict, List, Optional, Sequence
 
 import numpy as np
@@ -53,6 +54,10 @@ class MixtureDataset(BaseDataset):
         action_dim_override: Optional[int] = None,
         names: Optional[Sequence[str]] = None,
         strict_action_dim: bool = False,
+        anneal_start: Optional[Sequence[float]] = None,
+        anneal_end: Optional[Sequence[float]] = None,
+        anneal_schedule: str = "linear",
+        num_epochs: Optional[int] = None,
     ):
         if not datasets:
             raise ValueError("MixtureDataset requires at least one sub-dataset")
@@ -110,6 +115,43 @@ class MixtureDataset(BaseDataset):
             raise ValueError("MixtureDataset: all sub-sources are empty or zero-weight; nothing to sample.")
         self._weights = [w / total_w for w in weights]
 
+        # Epoch-driven weight annealing (spec_data_zh.md §6.1, ``annealed``).
+        # ``anneal_start``/``anneal_end`` are RAW relative weights (normalized per
+        # epoch); ``num_epochs`` is the anneal horizon injected by the training
+        # engine via :meth:`set_num_epochs`. None horizon ⇒ static at start.
+        self._anneal_start: Optional[np.ndarray] = None
+        self._anneal_end: Optional[np.ndarray] = None
+        self._anneal_schedule = anneal_schedule
+        self._num_epochs: Optional[int] = None
+        self._anneal_warned = False
+        if anneal_start is not None or anneal_end is not None:
+            if anneal_start is None or anneal_end is None:
+                raise ValueError("MixtureDataset: anneal_start and anneal_end must be provided together")
+            if anneal_schedule not in ("linear", "cosine"):
+                raise ValueError(
+                    f"MixtureDataset: unknown anneal_schedule={anneal_schedule!r}; use 'linear' or 'cosine'"
+                )
+            start = np.asarray(anneal_start, dtype=np.float64)
+            end = np.asarray(anneal_end, dtype=np.float64)
+            if start.shape != (len(self._datasets),) or end.shape != (len(self._datasets),):
+                raise ValueError(
+                    f"MixtureDataset: anneal_start/anneal_end length must match the dataset count "
+                    f"({len(self._datasets)})"
+                )
+            for label, arr in (("anneal_start", start), ("anneal_end", end)):
+                if not all(np.isfinite(arr)):
+                    raise ValueError(f"MixtureDataset: {label} must be finite: {arr.tolist()}")
+                if any(arr < 0):
+                    raise ValueError(f"MixtureDataset: negative {label} is not allowed: {arr.tolist()}")
+            if start.sum() <= 0 or end.sum() <= 0:
+                raise ValueError("MixtureDataset: annealed weights must be positive at both endpoints")
+            if num_epochs is not None and int(num_epochs) < 1:
+                raise ValueError(f"MixtureDataset: num_epochs must be >= 1, got {num_epochs}")
+            self._anneal_start = start
+            self._anneal_end = end
+            self._num_epochs = None if num_epochs is None else int(num_epochs)
+            self._weights = self._effective_weights(0.0)
+
         self._build_index_map()
 
         logger.info(
@@ -165,7 +207,49 @@ class MixtureDataset(BaseDataset):
         if new_seed == self._seed:
             return
         self._seed = new_seed
+        if self._anneal_start is not None:
+            if self._num_epochs is None:
+                if not self._anneal_warned:
+                    logger.warning(
+                        "MixtureDataset: weight_strategy=annealed without num_epochs; weights stay "
+                        "at anneal_start. Inject the horizon via set_num_epochs() before training."
+                    )
+                    self._anneal_warned = True
+            else:
+                self._weights = self._effective_weights(self._anneal_alpha(epoch))
         self._build_index_map()
+
+    def set_num_epochs(self, num_epochs: int) -> None:
+        """Training-engine injection point for the anneal horizon (spec §6.1).
+
+        Call before the training loop. The constructor already built the index
+        map at ``alpha(0)``; the next ``set_epoch`` picks the horizon up.
+        The seed guard is reset so a ``set_epoch`` already seen at the old
+        (horizon-less) state still rebuilds — e.g. resume calls ``set_epoch``
+        before the trainer injects the horizon.
+        """
+        if self._anneal_start is None:
+            return
+        if int(num_epochs) < 1:
+            raise ValueError(f"MixtureDataset: num_epochs must be >= 1, got {num_epochs}")
+        self._num_epochs = int(num_epochs)
+        # Unreachable-by-construction sentinel: set_epoch(e) yields
+        # base_seed + e*7919 with e >= 0, never base_seed - 7919.
+        self._seed = self._base_seed - 7919
+
+    def _anneal_alpha(self, epoch: int) -> float:
+        """Anneal progress in [0, 1] at ``epoch`` (linear default, or cosine)."""
+        denom = max(self._num_epochs - 1, 1)
+        e = min(max(int(epoch), 0), self._num_epochs - 1)
+        if self._anneal_schedule == "cosine":
+            return (1.0 - math.cos(e * math.pi / denom)) / 2.0
+        return e / denom
+
+    def _effective_weights(self, alpha: float) -> List[float]:
+        """Lerp the raw start/end weights at ``alpha`` and normalize to sum=1."""
+        raw = self._anneal_start + (self._anneal_end - self._anneal_start) * alpha
+        total = float(raw.sum())
+        return [float(w) / total for w in raw]
 
     def _build_index_map(self):
         """Build the shuffled ``(dataset_idx, sample_idx)`` virtual index.
@@ -320,6 +404,13 @@ class MixtureDataset(BaseDataset):
           proportional   — weight_i ∝ len(ds_i): virtual_n_i == len(ds_i) exactly,
                            every real sample is visited exactly once per virtual
                            epoch (full coverage, no waste, no duplication).
+          annealed       — per-epoch weight annealing from ``weight_start`` to
+                           ``weight_end`` (each falling back to ``weight``);
+                           schedule ``weight_anneal_schedule`` (linear|cosine),
+                           horizon ``weight_anneal_num_epochs`` injected by the
+                           trainer via ``set_num_epochs`` (spec_data_zh §6.1).
+                           Step-level annealing lives in the iter-based
+                           pipeline (spec_data_zh §6.2), not here.
         """
 
         from concurrent.futures import ThreadPoolExecutor
@@ -363,7 +454,7 @@ class MixtureDataset(BaseDataset):
             return entries
 
         weight_strategy = _get(config, "weight_strategy", "proportional")
-        valid_strategies = ("manual", "uniform", "inverse_size", "proportional")
+        valid_strategies = ("manual", "uniform", "inverse_size", "proportional", "annealed")
         if weight_strategy not in valid_strategies:
             raise ValueError(
                 f"MixtureDataset: unknown weight_strategy={weight_strategy!r}. Valid options: {valid_strategies}."
@@ -417,9 +508,28 @@ class MixtureDataset(BaseDataset):
         elif weight_strategy == "proportional":
             weights = [float(len(ds)) for ds in sub_datasets]
             logger.info("MixtureDataset: weight_strategy=proportional, raw weights=%s (= sub-source sizes)", weights)
+        elif weight_strategy == "annealed":
+            weights = None  # normalized per-epoch from anneal_start/anneal_end in __init__
         else:
             weights = [float(_get(sub_cfg, "weight", 1.0)) for sub_cfg in enabled_cfgs]
             logger.info("MixtureDataset: weight_strategy=manual, weights=%s", weights)
+
+        anneal_kwargs: dict = {}
+        if weight_strategy == "annealed":
+            anneal_epochs = _get(config, "weight_anneal_num_epochs")
+            anneal_kwargs = dict(
+                anneal_start=[float(_get(c, "weight_start", _get(c, "weight", 1.0))) for c in enabled_cfgs],
+                anneal_end=[float(_get(c, "weight_end", _get(c, "weight", 1.0))) for c in enabled_cfgs],
+                anneal_schedule=str(_get(config, "weight_anneal_schedule", "linear")),
+                num_epochs=None if anneal_epochs is None else int(anneal_epochs),
+            )
+            logger.info(
+                "MixtureDataset: weight_strategy=annealed, start=%s, end=%s, schedule=%s, num_epochs=%s",
+                anneal_kwargs["anneal_start"],
+                anneal_kwargs["anneal_end"],
+                anneal_kwargs["anneal_schedule"],
+                anneal_kwargs["num_epochs"],
+            )
 
         try:
             has_override_field = "action_dim_override" in config
@@ -433,4 +543,5 @@ class MixtureDataset(BaseDataset):
             action_dim_override=_get(config, "action_dim_override") if has_override_field else None,
             names=enabled_names,
             strict_action_dim=not has_override_field,
+            **anneal_kwargs,
         )
