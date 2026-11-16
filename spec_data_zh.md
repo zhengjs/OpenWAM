@@ -1,17 +1,17 @@
-# 技术规范:OpenWAM-AutoDrive — 数据链路(P1 契约 + P2 数据)
+# 技术规范:OpenWAM-AutoDrive — 数据处理流程(P1 接口约定 + P2 数据)
 
-> 本文档是 `spec_zh.md` 的 §3(契约)、§5(数据层)、§8.1(部署预处理对等)、§11(兼容矩阵)
-> 的数据侧细化,覆盖 **P1 契约重落地** 与 **P2 数据链路**。模型侧契约(§3.2 的
+> 本文档是 `spec_zh.md` 的 §3(接口约定)、§5(数据层)、§8.1(部署预处理一致性)、§11(兼容矩阵)
+> 的数据侧细化,覆盖 **P1 接口约定重新实现** 与 **P2 数据处理流程**。模型侧接口约定(§3.2 的
 > `BackboneOutput`/`ConnectorOutput`/`ActionHeadOutput`/`SystemOutput`)、模型层(§6)、
 > 训练引擎(§7、§4.2 `config_freezer.py`)不在本文档范围;归一化统计的冻结写入(§4.2 的
 > `dataset_statistics.json`)按 §3 此处定义。章节号引用 `spec_zh.md`。
 
 ## 0. 基座裁定(必须遵守)
 
-1. **在 `main` 上重落地 contracts**,不采用分支 `refactor/p1-contracts` 的代码(其
+1. **在 `main` 上重新实现 contracts**,不采用分支 `refactor/p1-contracts` 的代码(其
    `dataloader/builder.py`、`model/builder.py` 已被 `spec_zh.md` Rev 3 §1.3 规则 1 否决
    —— 注册表保留、builder 删除)。分支上的 `data_contract.py`/`model_contract.py`/
-   `collate.py`/`config_schema.py` **仅供参考**,落地时与本文档逐条对齐。
+   `collate.py`/`config_schema.py` **仅供参考**,实现时与本文档逐条对齐。
 2. **注册表是权威实例化机制**(§1.3 规则 1)。`dataloader/registry.py` 的装饰器注册、
    `build_dataset(config, split)`、`MixtureDataset.from_config` 均保留;Track B 读取器
    在 `dataloader/registry.py` 注册,预处理器在 `dataloader/preprocessors/registry.py`
@@ -21,7 +21,7 @@
 
 ---
 
-## 1. 契约层(`openwam/contracts/`)
+## 1. 接口约定(`openwam/contracts/`)
 
 字段命名沿用 `spec_zh.md` §3.2 约定:state 按来源命名(`last_hidden_state`、
 `hidden_states`),mask 按所掩蔽的序列命名(`attention_mask`、`context_mask`、
@@ -44,9 +44,9 @@
   位置在块 4(原始解码物理量)末尾,与 `raw_trajectory_valid_mask` 并列。collate 将其
   堆叠为 `ModelInputBatch.video_mask`。
 
-- **`ego_state_mask` 入两契约。** Track A 读取器的 `proprio_mask`(逐维状态有效性,2-D
-  `(1, D)`)被 `prepare_inputs` 桥接进 `inputs["proprio_mask"]`,但两个契约均无槽位。按
-  §3.2 命名规约(mask 按所掩蔽序列命名,状态序列 = `ego_state_tensor`)落位为
+- **`ego_state_mask` 补进两个数据结构。** Track A 读取器的 `proprio_mask`(逐维状态有效性,2-D
+  `(1, D)`)被 `prepare_inputs` 桥接进 `inputs["proprio_mask"]`,但两者原本都没有这个字段。按
+  §3.2 命名规约(mask 按所掩蔽序列命名,状态序列 = `ego_state_tensor`)最终命名为
   `ego_state_mask`:`PipelineContext` 块 5(`ego_state_tensor` 旁,`[D]`/`[T_hist, D]`),
   `ModelInputBatch`(`[B, T_hist, D]`);collate 复用既有 1-D/2-D 调和后堆叠。驾驶状态恒
   有效 ⇒ None。
@@ -99,18 +99,18 @@ class PreprocessorChainConfig:
     chain: List[ProcessorSpec] = field(default_factory=list)  # 顺序即执行序;可空(纯适配器/Track A)
 ```
 
-每个 processor 的 `from_config(kwargs)` 在构建时校验自身 kwarg(快失败);`ProcessorSpec`
+每个 processor 的 `from_config(kwargs)` 在构建时校验自身 kwarg(快速失败);`ProcessorSpec`
 不做刚性 schema,因各 processor kwarg 异构。`model_contract.py` 的 `ConnectorConfig` /
 `ActionHeadConfig`(模型侧)不在本文档。
 
-`契约源码基线`:落地时直接复用分支草稿 `data_contract.py`/`collate.py` **的逻辑**,但
+`约定源码基线`:实现时直接复用分支草稿 `data_contract.py`/`collate.py` **的逻辑**,但
 (a) 删其 `video_mask` 上位的既有写法改为块 4 增补字段、(b) 去掉 `dense docstring` 里
 任何对 builder 的引用、(c) 对齐本文档 §1.2 的 collate 规则。分支 DO NOT COPY:
 `dataloader/builder.py`、`model/builder.py`、`config_schema.py` 里的模型块。
 
 ---
 
-## 2. 归一化统计契约
+## 2. 归一化统计约定
 
 - **新运行**:`tools/ingest_lance.py` 离线计算或首次加载时 rank-0 计算(其他 rank 等待,
   同今日 auto-stats 协议)→ `dataset_statistics.json`,随 checkpoint 冻结(§4.2)。
@@ -128,7 +128,7 @@ class PreprocessorChainConfig:
   ```
 
   归一化公式复用 `dataloader/utils/normalization.py::apply_normalization` /
-  `dataloader/transforms/normalize.py::Normalizer`(同一套 train/deploy 位等价保证);
+  `dataloader/transforms/normalize.py::Normalizer`(同一套训练/部署逐位一致保证);
   子表(如 `_state` 方向性)沿用 `Normalizer` 的 `_NORMALIZE_STATS_KEY` 机制。
 
 ---
@@ -152,22 +152,21 @@ PipelineContext` → collate。**Track A 的预处理器链为空** —— 读�
 | `action`(已归一化) | `gt_trajectory_norm` | 读取器已归一化,不重走 `EgoStateProcessor`(非 `raw_*`) |
 | `action_mask` | `trajectory_mask` | 2-D `[T_pred, D]`,80-D 保留维在损失外 |
 | `proprio` | `ego_state_tensor` | `[1, D]` |
-| `proprio_mask` | `ego_state_mask` | 逐维状态有效性;按 §3.2 命名规约落位(见 §1.1) |
+| `proprio_mask` | `ego_state_mask` | 逐维状态有效性;按 §3.2 命名规约命名(见 §1.1) |
 | `prompt` | `prompt`(WAM) 或 `input_ids`(VLA 经 tokenize) | VLA Track A 走 `VLAPromptTokenizeProcessor` |
-| 簿记 | `sample_id`/`clip_uri`/`source_name`/`nav_instruction` | `clip_uri`=dataset_dir;`anchor_timestamp_us`=0 合成;`cam_frame_offsets`={} |
+| 管理字段 | `sample_id`/`clip_uri`/`source_name`/`nav_instruction` | `clip_uri`=dataset_dir;`anchor_timestamp_us`=0 合成;`cam_frame_offsets`={} |
 
 未映射:`calib`/`frame_timestamps_ns`/`raw_images`/`raw_ego_history`/`raw_gt_trajectory`
-/`raw_trajectory_valid_mask` 全为 None(Track A 无标定/时序、原始槽位被读取器内联消化)。
+/`raw_trajectory_valid_mask` 全为 None(Track A 无标定/时序、原始字段已由读取器内部消化)。
 `unify_action_map`、颜色抖动状态是**读取器内部**配置,不进上下文(§3.1 Track A 映射规范)。
 
-对等闸口(契约层,P2):固定种子下,adapters→空链→collate 产出的 `ModelInputBatch`
+一致性校验(约定层,P2):固定种子下,adapters→空链→collate 产出的 `ModelInputBatch`
 与今日 transforms 路径在纯字段重命名上**逐比特一致**,且 `pixel_values` 精确恢复 uint8
-(`fl(fl(u8/255)*255)==u8`,模型侧按 `(x*255)*(2/255)-1` 转换即与 wan preprocess 位等价),
-由 `test_robot_adapter_parity.py` 钉死。损失级位等价闸口随 P3 模型侧 `ModelInputBatch→forward`
+(`fl(fl(u8/255)*255)==u8`,模型侧按 `(x*255)*(2/255)-1` 转换即与 wan preprocess 逐位一致),
+由 `test_robot_adapter_parity.py` 固定。损失级逐位一致校验随 P3 模型侧 `ModelInputBatch→forward`
 适配执行,通过后删除 `transforms/` 包(独立 PR)。`video` 的 PIL→tensor 转换发生在图像
 处理器,而 Track A 已由读取器产出 canvas,故适配器直接用读取器内部同一
-`assemble_multiview_layout` 的结果 —— 唯一新增负担是 PIL→tensor + `permute` 的正确性由
-对等闸口验证。
+`assemble_multiview_layout` 的结果 —— 唯一新增负担是 PIL→tensor + `permute` 的正确性由上述一致性校验验证。
 
 ---
 
@@ -261,9 +260,9 @@ calib.json
 | 处理器 | 仅训练 | 输入 → 输出 |
 |---|---|---|
 | `MultiCamVideoDecoder` | 是 | `clip_uri`+`cam_frame_offsets` → `raw_images: {cam:[T_obs,H,W,3]uint8}` + `frame_timestamps_ns`(MP4 PTS)。decord/PyAV,每 worker 单例句柄 + 有界 LRU;颜色抖动(仅训练、时间一致)从 `transforms/video.py` 移入。 |
-| `TopicTimeSynchronizer` | 是 | `clip_uri`+`anchor_timestamp_us`+`frame_timestamps_ns`+`calib` → `raw_ego_history: [T_hist,D_state]`(在锚点插值 `ego_motion.parquet`,经 `calib` 变换到 ego-rig 系)。插值类型/容差闸口/超闸策略是配置字段(§12 O1 默认值未决)。旋转工具复用 `utils/poses.py`(6D/四元数)。**注:`raw_gt_trajectory` 不在此时产生 —— 它已在 Lance 预计算(§4.4),本处理器只做历史插值(见 §7)。** |
+| `TopicTimeSynchronizer` | 是 | `clip_uri`+`anchor_timestamp_us`+`frame_timestamps_ns`+`calib` → `raw_ego_history: [T_hist,D_state]`(在锚点插值 `ego_motion.parquet`,经 `calib` 变换到 ego-rig 系)。插值类型/容差阈值/超限策略是配置字段(§12 O1 默认值未决)。旋转工具复用 `utils/poses.py`(6D/四元数)。**注:`raw_gt_trajectory` 不在此时产生 —— 它已在 Lance 预计算(§4.4),本处理器只做历史插值(见 §7)。** |
 | `EgoStateProcessor` | 否 | `raw_ego_history`+`raw_gt_trajectory`+`raw_trajectory_valid_mask` → `ego_state_tensor`/`gt_trajectory_norm`/`trajectory_mask`。用 `dataset_statistics.json` 归一化,可选 Fourier 嵌入;提供 `denormalize_trajectory` + π0.5 风格 `state2str`(供 prompt 处理器)。 |
-| `MultiViewImageProcessor` | 否 | `raw_images` → 三布局之一(配置 `per_cam_resolution: {cam:[H,W]}` + `mode`):`wam_canvas`(视差合成到单画布,槽位随层级)、`standard_tensor`(`{cam:[T_obs,C,H,W]}` 不上采样)、`qwen_vl_patch`(动态分辨率分块 + `image_grid_thw`)。缩放/归一化参数 checkpoint 冻结。合并进单 token 流在模型侧(§6.2),不在本处理器。 |
+| `MultiViewImageProcessor` | 否 | `raw_images` → 三布局之一(配置 `per_cam_resolution: {cam:[H,W]}` + `mode`):`wam_canvas`(视差合成到单画布,字段随层级)、`standard_tensor`(`{cam:[T_obs,C,H,W]}` 不上采样)、`qwen_vl_patch`(动态分辨率分块 + `image_grid_thw`)。缩放/归一化参数 checkpoint 冻结。合并进单 token 流在模型侧(§6.2),不在本处理器。 |
 | `VLAPromptTokenizeProcessor` | 否 | `nav_instruction`+相机 token(占位符展开顺序)+可选 `state2str`+`cot_text` → `input_ids`/`attention_mask`/`vlm_labels`(`cot_text` 存在时 prompt token 置 -100)。 |
 
 双模式:
@@ -272,7 +271,7 @@ calib.json
 - **推理**:`InferenceProcessorPipeline.from_checkpoint(ckpt_dir)` 从冻结 `config.yaml`
   重建链,过滤 `is_training_only=True`(训练只用 `EgoStateProcessor`+`MultiViewImageProcessor`
   +`VLAPromptTokenizeProcessor`),把实时输入(`{cam: frame}` 字典、最新 ego 读数、指令)
-  映射进 `PipelineContext`,再走同一链 —— 训练/部署对等(starVLA `PolicyNormProcessor` 教训)。
+  映射进 `PipelineContext`,再走同一链 —— 训练/部署一致(starVLA `PolicyNormProcessor` 教训)。
 
 ---
 
@@ -358,9 +357,9 @@ calib.json
   处于相近的 curriculum 相位。
 - `sample_index`:每个 dataset 各自一条序列、所有 rank 共享;加载时按跳跃逻辑,**每 rank
   只保留自己要采的 index**(strided 切片,降内存)。
-- **比例调整只改槽位**:数据比例变化时,基于前一份 `dataset_index` 序列做**特定槽位的局部
+- **比例调整只改局部位置**:数据比例变化时,基于前一份 `dataset_index` 序列做**特定位置的局部
   改写**(而非整体重生成),避免"加一个/调一个数据集数量"导致全序列大抖动。要求序列存储
-  可版本化 + 可按槽位更新。
+  可版本化 + 可按位置更新。
 - **world_size 不变性(后期,预留接口即可)**:后期存在不同卡数配置,需保证改 `world_size` 时
   数据分布不变 —— 跳跃 stride 由**固定上限(最大步数/最大卡数)** 控制,而非绑定当前
   `world_size`:全局序列一经生成,其 curriculum 顺序与各位置内容即固定,`world_size` 只决定
@@ -369,14 +368,14 @@ calib.json
 
 **存储方式**:
 
-- 两类序列都是**数据资产**,都要**版本化**("比例调整只改槽位" = 在上一版序列上做差量)。
+- 两类序列都是**数据资产**,都要**版本化**("比例调整只改位置" = 在上一版序列上做差量)。
 - `dataset_index`:`[world_size × batch_size × total_steps]` int(数据集 id,量小)。→
-  **Lance 表**(单列,int;版本化 + 槽位级更新)。
+  **Lance 表**(单列,int;版本化 + 局部更新)。
 - `sample_index`:每个 dataset 一条记录序列,每条 = **样本身份**(`clip_uuid` + `frame_uuid`
   + 相机/时间戳等),可达**亿级**。→ **Lance 表**(列式 + 版本化 + 随机/步进读 +
   memory-mapped scan)。**排序键 = 显式 `order_id` 列**(int64 代用键,离线生成时写死,稳定
   可 join):每 rank 按 `order_id % world_size == rank` 只加载自己 strided 切片;跨版本
-  "只改槽位"的差量也以 `order_id` 定位。用**身份而非位置索引**是为稳恒:数据表重排/插入
+  "只改位置"的差量也以 `order_id` 定位。用**身份而非位置索引**是为稳恒:数据表重排/插入
   行时,身份仍指向同一物理样本。加载侧经 `clip_uuid` 直达 `raw_clips/<clip_uuid>/` 定位。
 - **memmap(`.npy`)不再适用**:`sample_index` 已非单 int64 数组,而是结构化身份字段 + 需版本
   化;memmap 既表达不了多字段、也无可版本语义。
@@ -423,23 +422,23 @@ optimizer/scheduler/RNG 恢复属 `spec_zh.md` §7(不在本文档);此处约定
 **DDP**:各 rank 恢复各自游标;`global_step`/`epoch` 全 rank 一致(同读一份 ckpt)。world_size
 变化时的一致性归 O6(后期),当前 assume 固定 world_size。
 
-**验证(对等闸口)**:固定种子下,断点恢复后的前 N 个批与连续训练同一步区间**逐字节一致**
-(回归测试);直接复用 §6.2 的确定性生成,是"完整恢复"的硬门。
+**验证(一致性校验)**:固定种子下,断点恢复后的前 N 个批与连续训练同一步区间**逐字节一致**
+(回归测试);直接复用 §6.2 的确定性生成,是"完整恢复"的必要条件。
 
 ---
 
 ## 7. 未决 / 待确认
 
 - **`待确认 A — Track A "经新链" 口径`。** `spec_zh.md` §10 P2 写"Track A 经新链运行",而
-  §5.1 又说读取器"保持原样"+薄适配器。本文档裁定:Track A 走适配器(填已处理槽位)且链为空;
+  §5.1 又说读取器"保持原样"+薄适配器。本文档裁定:Track A 走适配器(填已处理字段)且链为空;
   "经新链"即"经新数据管线(adapters→collate)不失真"。若你的意图是让 Track A 读取器改吐
-  原始数据、由预处理器链**重新**解码/归一化(重实现对等),则需扩改四个读取器,工作量与
+  原始数据、由预处理器链**重新**解码/归一化(重新实现并保持一致),则需扩改四个读取器,工作量与
   §5.1"保持原样"冲突 —— 请确认。
 - **`待确认 B — 驾驶 GT 轨迹来源`。** 本文档依 §5.2 裁定 GT 轨迹 `gt_future_traj_ego` 在
   ingest 预计算进 Lance,`TopicTimeSynchronizer` 只插值历史;§5.3 表格措辞把
   `raw_gt_trajectory` 也归给同步器。若你需要**读时**重推导(不打 Lance 轨迹列),同步器须
   额外读 `localization.parquet` 并做 ego 系投影 —— 请确认走预计算还是读时推导。
-- **O1 — 时间同步参数**:插值类型(线性 vs 样条)、容差闸口(提议 ±5 ms)、超闸策略(无效
+- **O1 — 时间同步参数**:插值类型(线性 vs 样条)、容差阈值(提议 ±5 ms)、超限策略(无效
   掩码 vs 丢弃)。`TopicTimeSynchronizer` 的字段默认值待定。
 - **O2 — 离线 VAE latent 预编码**:采纳则以 `LatentCacheReader` 处理器短路解码+编码,
   架构接受预计算 latent;决策须在 P2 结束前(影响 Lance schema 与 ingest 工具)。
@@ -454,7 +453,7 @@ optimizer/scheduler/RNG 恢复属 `spec_zh.md` §7(不在本文档);此处约定
 
 | 阶段 | 范围 | 验收 |
 |---|---|---|
-| P1 | `contracts/` 数据侧(`data_contract.py` 含 `video_mask` 增补、`config_schema.py` 数据块;**不含 `collate.py`**)+ 遗留兼容(注册表不动、旧 checkpoint `config.yaml` 经 `resolve_architecture_config` 原样加载) | 现有 pytest 全绿;契约构建期校验快失败;遗留黄金 checkpoint 可加载 |
-| P2 | `contracts/collate.py` + Track A 适配器(`robot_data_adapter.py`,§3)+ 预处理器链(`preprocessors/`)+ 归一化统计双读(§2)+ Track B(`autodriving_dataset.py`+`clip_reader.py`)+ `MixtureDataset` 跨格式与权重退火(§6.1)+ iter-based 管线(§6.2,`IterMixtureDataset`+`WeightAnnealingSampler` 在线/离线)+ `configs/dataloader/` 重组(`robot/`+`driving/`+`preprocessors/`,Hydra 包重映射,cfg 树回归)+ `tools/ingest_lance.py` | 固定种子下 Track A 经新管线(适配器→空链→collate)**契约层位等价**:纯重命名字段(action/mask/proprio/prompt)与 transforms 路径逐比特一致,`pixel_values` 满足 `fl(fl(u8/255)*255)==u8` 精确恢复(模型侧按 `(x*255)*(2/255)-1` 转换即与 wan preprocess 位等价,见 `test_robot_adapter_parity.py`);配置移动不改变组合出的 cfg 树;退火权重各 epoch 归一化且重分配守恒单测;iter-based 在线采样序列/断点续训冒烟;**离线序列加载与 lance 写入随 lance 环境落地**。模型侧 `ModelInputBatch→forward` 适配与损失位等价闸口在 P3(随 connectors 一起,届时 wan 张量入口 + 变体条件接受张量首帧) |
+| P1 | `contracts/` 数据侧(`data_contract.py` 含 `video_mask` 增补、`config_schema.py` 数据块;**不含 `collate.py`**)+ 遗留兼容(注册表不动、旧 checkpoint `config.yaml` 经 `resolve_architecture_config` 原样加载) | 现有 pytest 全绿;约定的构建期校验快速失败;遗留黄金 checkpoint 可加载 |
+| P2 | `contracts/collate.py` + Track A 适配器(`robot_data_adapter.py`,§3)+ 预处理器链(`preprocessors/`)+ 归一化统计双读(§2)+ Track B(`autodriving_dataset.py`+`clip_reader.py`)+ `MixtureDataset` 跨格式与权重退火(§6.1)+ iter-based 管线(§6.2,`IterMixtureDataset`+`WeightAnnealingSampler` 在线/离线)+ `configs/dataloader/` 重组(`robot/`+`driving/`+`preprocessors/`,Hydra 包重映射,cfg 树回归)+ `tools/ingest_lance.py` | 固定种子下 Track A 经新管线(适配器→空链→collate)**约定层逐位一致**:纯重命名字段(action/mask/proprio/prompt)与 transforms 路径逐比特一致,`pixel_values` 满足 `fl(fl(u8/255)*255)==u8` 精确恢复(模型侧按 `(x*255)*(2/255)-1` 转换即与 wan preprocess 逐位一致,见 `test_robot_adapter_parity.py`);配置移动不改变组合出的 cfg 树;退火权重各 epoch 归一化且重分配守恒单测;iter-based 在线采样序列/断点续训冒烟;**离线序列加载与 lance 写入随 lance 环境实现**。模型侧 `ModelInputBatch→forward` 适配与损失级逐位一致校验在 P3(随 connectors 一起,届时 wan 张量入口 + 变体条件接受张量首帧) |
 
-`transforms/` 删除推迟到 P3 模型侧闸口(损失逐比特一致)通过后(独立 PR);五个注册表保留(§1.3 规则 1),不列入删除。
+`transforms/` 删除推迟到 P3 模型侧验收(损失逐比特一致)通过后(独立 PR);五个注册表保留(§1.3 规则 1),不列入删除。
