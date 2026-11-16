@@ -77,6 +77,7 @@ def _register_builtins():
     from openwam.dataloader.agibotworld import MultiAgiBotWorldDataset
     from openwam.dataloader.ebench import EBenchDataset
     from openwam.dataloader.interndata_a1 import InternDataA1Dataset
+    from openwam.dataloader.autodriving_dataset import AutoDrivingDataset
     from openwam.dataloader.libero import LiberoDataset
     from openwam.dataloader.mixture import MixtureDataset
     from openwam.dataloader.oxe_droid import OxeDroidDataset
@@ -102,6 +103,9 @@ def _register_builtins():
     # points at a bucket or at the dataset root.
     register_dataset("interndata_a1")(InternDataA1Dataset)
     register_dataset("vlabench")(VLABenchDataset)
+    # Track B (driving): lazy lance import inside the module keeps this
+    # registration safe on robot-only hosts.
+    register_dataset("lance_clip")(AutoDrivingDataset)
 
 
 _register_builtins()
