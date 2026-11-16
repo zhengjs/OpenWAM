@@ -18,9 +18,8 @@ freeze:
 architecture:
   framework: vla
   variant: oftp             # oftp | pi | groot — preset selector; composing with
-                            #   framework=vla, registry key vla_system. The legacy
-                            #   vla_qwen_oft/pi/groot subclasses remain equivalent
-                            #   (loss-reproduction gate).
+                            #   framework=vla, registry key vla_system — the
+                            #   only registry entry for the family.
   # Conditioning connector (spec §6.3). null = follow the variant preset
   # (oftp -> last_hidden_tokens, pi -> layerwise_hidden,
   #  groot -> last_hidden_cross_attn). Override for yaml-level new

@@ -178,7 +178,7 @@ def register_architecture(
     status: str = "supported",
     note: str = "",
     framework: str = "",
-    variant: str = "",
+    variant: "str | list[str] | tuple[str, ...]" = "",
     options_from_cfg: Optional[Callable] = None,
 ):
     """Decorator to register a WAM architecture class.
@@ -188,7 +188,9 @@ def register_architecture(
         status: ``"supported"`` or ``"experimental"``.
         note: Human-readable note.
         framework: Architecture family (e.g. ``"dual_system"``).
-        variant: Variant within the family (e.g. ``"joint_cross_attn"``).
+        variant: Variant within the family (e.g. ``"joint_cross_attn"``);
+            a sequence claims several (e.g. vla_system owning
+            ``system`` plus the ``oftp``/``pi``/``groot`` aliases).
         options_from_cfg: Optional callable ``(cfg) -> dict`` that extracts
             architecture-specific options from the build config.
     """
@@ -202,11 +204,19 @@ def register_architecture(
         ARCHITECTURE_SUPPORT[name] = ArchitectureSupport(status=status, note=note)
         ARCHITECTURE_METADATA[name] = ArchitectureMetadataEntry(
             framework=framework,
-            variant=variant,
+            variant=variant if isinstance(variant, str) else variant[0],
             options_from_cfg=options_from_cfg,
         )
         if framework:
-            _FRAMEWORK_VARIANT_INDEX[(framework, variant or None)] = name
+            variants = variant if isinstance(variant, (list, tuple)) else [variant]
+            for v in variants:
+                key = (framework, v or None)
+                if key in _FRAMEWORK_VARIANT_INDEX:
+                    raise ValueError(
+                        f"Framework-variant key {key} already maps to "
+                        f"'{_FRAMEWORK_VARIANT_INDEX[key]}' (registering '{name}')"
+                    )
+                _FRAMEWORK_VARIANT_INDEX[key] = name
 
         return cls
 

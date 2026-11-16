@@ -1,9 +1,8 @@
 """``last_hidden_tokens`` connector (QwenOFT conditioning, spec_zh.md §6.3).
 
 Gathers the trailing ``action_horizon`` action-placeholder token embeddings
-from the last hidden state; the gathered positions feed the MLP L1 head. The
-gather logic is shared verbatim with ``QwenOFTArchitecture`` (which delegates
-to :func:`gather_action_token_embeddings`).
+from the last hidden state; the gathered positions feed the MLP L1 head
+(oftp variant conditioning).
 """
 
 from __future__ import annotations

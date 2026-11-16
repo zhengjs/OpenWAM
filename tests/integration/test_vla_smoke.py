@@ -12,7 +12,7 @@ build path:
       -> predict_action
       -> checkpoint save/load round-trip
 
-Verifies, per variant (vla_qwen_oft / vla_qwen_pi / vla_qwen_groot):
+Verifies, per variant (oftp / pi / groot) of ``vla_system``:
   1. Builds from a yaml-shaped config (framework=vla + variant).
   2. ``backbones`` scans {vlm_backbone, action_backbone}.
   3. ``compute_loss`` returns the trainer loss-dict contract and backward flows.
@@ -34,7 +34,7 @@ ACTION_DIM, HORIZON, STATE_DIM = 4, 3, 5
 NUM_VL_LAYERS = 2
 ACTION_TOKEN_ID = 151669
 
-_VLA_NAMES = {"oftp": "vla_qwen_oft", "pi": "vla_qwen_pi", "groot": "vla_qwen_groot"}
+_VLA_NAMES = {"oftp": "vla_system", "pi": "vla_system", "groot": "vla_system"}
 
 
 class _StubTokenizer:

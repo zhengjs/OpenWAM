@@ -1,8 +1,9 @@
 """Registry + config resolution tests for the VLA architecture family.
 
 Verifies:
-  1. The three canonical names are registered with the (vla, variant) index
-     entries (vla_qwen_oft / vla_qwen_pi / vla_qwen_groot).
+  1. ``vla_system`` owns every (framework=vla, variant) index entry — it is
+     the ONE registry name for the family (the per-variant subclasses were
+     deleted after the loss reproduction gate pinned equivalence).
   2. ``resolve_architecture_config`` flattens the VLA ``architecture:`` block
      and forwards the ``vlm_backbone`` group unchanged (registry needs no edit
      for the VLA family — the resolve path is shared with WAM).
@@ -24,12 +25,10 @@ def test_vla_names_registered():
         ARCHITECTURE_SUPPORT,
     )
 
-    for name in ("vla_qwen_oft", "vla_qwen_pi", "vla_qwen_groot"):
-        assert name in ARCHITECTURE_REGISTRY
-        assert ARCHITECTURE_SUPPORT[name].supported
-    assert _FRAMEWORK_VARIANT_INDEX[("vla", "oftp")] == "vla_qwen_oft"
-    assert _FRAMEWORK_VARIANT_INDEX[("vla", "pi")] == "vla_qwen_pi"
-    assert _FRAMEWORK_VARIANT_INDEX[("vla", "groot")] == "vla_qwen_groot"
+    assert "vla_system" in ARCHITECTURE_REGISTRY
+    assert ARCHITECTURE_SUPPORT["vla_system"].supported
+    for variant in ("system", "oftp", "pi", "groot"):
+        assert _FRAMEWORK_VARIANT_INDEX[("vla", variant)] == "vla_system"
 
 
 def test_vla_base_classes_inherit_common_root():
@@ -43,7 +42,7 @@ def test_vla_base_classes_inherit_common_root():
 
 @pytest.mark.parametrize(
     "variant,registry_name",
-    [("oftp", "vla_qwen_oft"), ("pi", "vla_qwen_pi"), ("groot", "vla_qwen_groot")],
+    [("oftp", "vla_system"), ("pi", "vla_system"), ("groot", "vla_system")],
 )
 def test_vla_resolve_framework_variant(variant, registry_name):
     from openwam.model import resolve_architecture_config
@@ -81,7 +80,7 @@ def test_vla_yaml_hydra_composes():
     from openwam.model import resolve_architecture_config
 
     resolved = resolve_architecture_config(cfg.model)
-    assert resolved.registry_name == "vla_qwen_oft"
+    assert resolved.registry_name == "vla_system"
     assert resolved.params["vlm_backbone"].name == "qwen3_vl_vla"
 
 
@@ -105,4 +104,4 @@ def test_vla_yaml_pi_variant_override_composes():
 
     from openwam.model import resolve_architecture_config
 
-    assert resolve_architecture_config(cfg.model).registry_name == "vla_qwen_pi"
+    assert resolve_architecture_config(cfg.model).registry_name == "vla_system"

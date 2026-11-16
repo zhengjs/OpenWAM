@@ -1,10 +1,14 @@
-"""VLASystem loss reproduction (spec_zh.md §6.3 / §10 P3 acceptance).
+"""VLASystem variant behavior pins (spec_zh.md §6.3 / P3 acceptance).
 
-``vla_system`` with ``variant=oftp|pi|groot`` must reproduce the legacy
-``vla_qwen_oft|pi|groot`` losses BIT-EXACTLY: same stub VLM, same seed, same
-batch — conditioning flows through the connector layer but the numbers cannot
-move. This is the yaml-composition equivalence gate for absorbing the three
-subclasses.
+The per-variant subclasses (``vla_qwen_oft/pi/groot``) were deleted after
+the loss reproduction gate proved ``vla_system`` bit-identical to them
+(git 4412820, 2026-11-16). What remains to pin:
+
+1. **Seeded-loss PIN per variant** — exact float values under the stub VLM;
+   any conditioning/head regression moves them.
+2. Registry ownership: every ``(framework=vla, variant)`` key resolves to
+   ``vla_system`` — the only entry point for the family.
+3. Explicit ``connector`` override changes conditioning without new code.
 """
 
 from __future__ import annotations
@@ -21,7 +25,14 @@ ACTION_DIM, HORIZON, STATE_DIM = 4, 3, 5
 NUM_VL_LAYERS = 2
 ACTION_TOKEN_ID = 151669
 
-_LEGACY = {"oftp": "vla_qwen_oft", "pi": "vla_qwen_pi", "groot": "vla_qwen_groot"}
+# Fixed-seed losses (seed 42 build / seed 0 batch, stub VLM). Pinned at the
+# subclass deletion commit; the subclass-equivalence evidence lives in git
+# history (4412820: bitwise parity vs vla_qwen_oft/pi/groot).
+_PINNED_LOSSES = {
+    "oftp": 1.2374356985092163,
+    "pi": 2.750852584838867,
+    "groot": 2.650782346725464,
+}
 
 
 class _StubTokenizer:
@@ -35,8 +46,7 @@ class _StubProcessor:
 
 
 class _SeedableStubVLM(VlmBackbone):
-    """Stub VLM whose hidden states derive from input_ids — deterministic
-    across the two architecture families under comparison."""
+    """Stub VLM whose hidden states derive from input_ids — deterministic."""
 
     def __init__(self, hidden_size=HIDDEN, num_layers=NUM_VL_LAYERS, **_):
         super().__init__()
@@ -67,7 +77,6 @@ class _SeedableStubVLM(VlmBackbone):
     def forward_hidden_states(self, vlm_inputs, *, num_last_layers=None):
         batch = self.batch_vlm_inputs(vlm_inputs)
         b, length = batch["input_ids"].shape
-        # deterministic: hidden = small projection of input_ids (no params)
         h = batch["input_ids"].float().unsqueeze(-1).expand(b, length, self._hidden_size) % 7.0
         h = h + torch.arange(self._hidden_size).float() * 0.01
         if num_last_layers is None:
@@ -108,11 +117,11 @@ def _cfg(variant: str) -> dict:
     }
 
 
-def _loss_of(name: str, cfg: dict) -> torch.Tensor:
+def _loss_of(variant: str) -> torch.Tensor:
     from openwam.model import build_architecture
 
     torch.manual_seed(42)
-    arch = build_architecture(name, cfg)
+    arch = build_architecture("vla_system", _cfg(variant))
     arch._device = torch.device("cpu")
     arch._dtype = torch.float32
     inputs = arch.prepare_inputs(_batch())
@@ -120,10 +129,22 @@ def _loss_of(name: str, cfg: dict) -> torch.Tensor:
 
 
 @pytest.mark.parametrize("variant", ["oftp", "pi", "groot"])
-def test_vla_system_reproduces_legacy_loss_bitwise(stub_vlm, variant):
-    legacy = _loss_of(_LEGACY[variant], _cfg(variant))
-    system = _loss_of("vla_system", _cfg(variant))
-    torch.testing.assert_close(system, legacy, rtol=0.0, atol=0.0)
+def test_variant_loss_matches_pin(stub_vlm, variant):
+    loss = _loss_of(variant)
+    assert loss.item() == _PINNED_LOSSES[variant]
+
+
+def test_registry_variants_all_resolve_to_vla_system():
+    from openwam.model import resolve_architecture_config
+    from types import SimpleNamespace
+
+    for variant in ("system", "oftp", "pi", "groot"):
+        cfg = SimpleNamespace(
+            architecture={"framework": "vla", "variant": variant, "action_head": {"action_dim": 7}},
+            action_backbone=None, video_backbone=None,
+            vlm_backbone={"name": "qwen3_vl_vla"},
+        )
+        assert resolve_architecture_config(cfg).registry_name == "vla_system"
 
 
 def test_connector_override_changes_conditioning(stub_vlm):

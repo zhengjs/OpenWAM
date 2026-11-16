@@ -1,24 +1,19 @@
 """VLA architecture family (``framework=vla``).
 
-Adapted from starVLA (starVLA/model/framework/VLM4A/): QwenOFT / QwenPI /
-QwenGR00T — VLM-conditioned action prediction over multi-view images plus a
-language instruction, sharing the family-agnostic :class:`BaseArchitecture`
-root with the WAM families (no video stream).
+One architecture, config-driven (spec_zh.md §6.3): ``vla_system`` composes
+``vlm_backbone + connector + action_head`` from yaml, with per-variant
+presets (oftp / pi / groot) carrying the behavior the legacy per-variant
+subclasses used to own. Those subclasses were deleted after the loss
+reproduction gate pinned equivalence (git history 4412820);
 
     from openwam.model import build_architecture
-    arch = build_architecture("vla_qwen_oft", cfg)
+    arch = build_architecture("vla_system", cfg)   # cfg.variant: oftp | pi | groot
 """
 
 from openwam.model.architectures.vla.base_vla import BaseVLAArchitecture
-from openwam.model.architectures.vla.qwen_groot import QwenGR00TArchitecture
-from openwam.model.architectures.vla.qwen_oft import QwenOFTArchitecture
-from openwam.model.architectures.vla.qwen_pi import QwenPIArchitecture
 from openwam.model.architectures.vla.vla_system import VLASystemArchitecture
 
 __all__ = [
     "BaseVLAArchitecture",
-    "QwenOFTArchitecture",
-    "QwenPIArchitecture",
-    "QwenGR00TArchitecture",
     "VLASystemArchitecture",
 ]

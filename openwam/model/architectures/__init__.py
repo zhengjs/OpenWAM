@@ -26,9 +26,7 @@ from openwam.model.architectures.single_system import (
 from openwam.model.architectures.tri_system import TriSystemJointSelfAttnArchitecture
 from openwam.model.architectures.vla import (
     BaseVLAArchitecture,
-    QwenGR00TArchitecture,
-    QwenOFTArchitecture,
-    QwenPIArchitecture,
+    VLASystemArchitecture,
 )
 
 __all__ = [
@@ -52,7 +50,5 @@ __all__ = [
     "SingleSystemVanillaArchitecture",
     "TriSystemJointSelfAttnArchitecture",
     "BaseVLAArchitecture",
-    "QwenOFTArchitecture",
-    "QwenPIArchitecture",
-    "QwenGR00TArchitecture",
+    "VLASystemArchitecture",
 ]

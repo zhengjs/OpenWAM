@@ -168,16 +168,20 @@ _VARIANTS: dict = {
     status="supported",
     note="VLA System: config-driven vlm_backbone + connector + action_head composition (§6.3).",
     framework="vla",
-    variant="system",
+    # Owns the whole framework=vla family: ``system`` (canonical) plus the
+    # oftp/pi/groot aliases so legacy (framework=vla, variant=X) configs
+    # resolve here — the preset table carries their behavior.
+    variant=("system", "oftp", "pi", "groot"),
 )
 class VLASystemArchitecture(BaseVLAArchitecture):
     """Config-driven VLA architecture (absorbs QwenOFT / QwenPI / QwenGR00T).
 
-    Two composition knobs beyond the legacy variants:
+    Two composition knobs:
 
     - ``variant``: preset selector (oftp | pi | groot) — defaults + state
-      routing + connector/head pairing. Keeping it means legacy
-      ``vla.yaml`` configs compose identically (loss-reproduction test).
+      routing + connector/head pairing. ``resolve_architecture_config``
+      maps every framework=vla config here, so there is exactly ONE
+      registry entry for the family.
     - ``connector`` (optional): registry name overriding the preset's
       connector, with ``connector_kwargs`` for its constructor. Config wins
       over the preset — new combinations need no subclass.
