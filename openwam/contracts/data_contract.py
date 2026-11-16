@@ -85,6 +85,9 @@ class PipelineContext:
     vlm_labels: Optional[Tensor] = None
     # [T_hist, D_enc] (T_hist=1 for robot proprio).
     ego_state_tensor: Optional[Tensor] = None
+    # Per-dim validity of ego_state_tensor ([D] or [T_hist, D]). Track A readers
+    # emit it today ("proprio_mask"); driving state is always fully valid ⇒ None.
+    ego_state_mask: Optional[Tensor] = None
     # [T_pred, D_action].
     gt_trajectory_norm: Optional[Tensor] = None
     # [T_pred] or [T_pred, D_action] bool.
@@ -120,6 +123,8 @@ class ModelInputBatch:
 
     # State / action supervision.
     ego_state_tensor: Optional[Tensor] = None
+    # Per-dim state validity, [B, T_hist, D] (or [B, D]).
+    ego_state_mask: Optional[Tensor] = None
     gt_trajectory_norm: Optional[Tensor] = None
     # [B, T_pred] bool, or [B, T_pred, D_action] for per-dim validity (robot
     # 80-D reserved dims). Subsumes action_is_pad.
