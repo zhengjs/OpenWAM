@@ -1,0 +1,5 @@
+# QwenOFT conditioning: gather trailing action-token embeddings (spec §6.3).
+# action_token_id is resolved from the VLM processor at build time.
+name: last_hidden_tokens
+action_horizon: 8
+action_token_id: null

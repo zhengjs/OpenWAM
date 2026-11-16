@@ -20,6 +20,7 @@ import torch
 from torch import Tensor
 
 from openwam.model.action_backbone.vla_heads import build_vla_action_head
+from openwam.model.architectures.connectors.last_hidden_tokens import gather_action_token_embeddings
 from openwam.model.architectures.registry import register_architecture
 from openwam.model.architectures.vla.base_vla import BaseVLAArchitecture
 
@@ -103,35 +104,8 @@ class QwenOFTArchitecture(BaseVLAArchitecture):
         input_ids: Tensor,  # [B, L]
         action_token_id=None,  # Can be int or List[int]
     ) -> Tensor:
-        """Vectorized batch extraction of action-token embeddings: select the
-        last ``action_horizon`` action placeholder tokens from each sample."""
-        if action_token_id is None:
-            raise ValueError("action_token_id must not be None")
-
-        device = input_ids.device
-        B, L, H = last_hidden.shape
-
-        # Support multiple ids (e.g., multiple special-token variants)
-        if isinstance(action_token_id, (list, tuple, set)):
-            id_list = torch.tensor(list(action_token_id), device=device, dtype=input_ids.dtype)
-            mask = torch.isin(input_ids, id_list)
-        else:
-            mask = input_ids == action_token_id  # [B, L]
-
-        counts = mask.sum(dim=1)  # [B]
-        if (counts < self.action_horizon).any():
-            insufficient = (counts < self.action_horizon).nonzero(as_tuple=False).flatten().tolist()
-            raise RuntimeError(
-                f"The following samples have insufficient action tokens (< {self.action_horizon}): {insufficient} |"
-                f" counts={counts.tolist()}"
-            )
-
-        # Position indices; take the last action_horizon positions (higher
-        # indices = later in sequence), sorted back into temporal order.
-        idx = torch.arange(L, device=device).unsqueeze(0).expand(B, L)  # [B, L]
-        masked_pos = torch.where(mask, idx, torch.full_like(idx, -1))  # Set non-action positions to -1
-        topk_pos = masked_pos.topk(k=self.action_horizon, dim=-1).values  # [B, chunk] unsorted
-        selected_pos = topk_pos.sort(dim=-1).values  # [B, chunk]
-
-        expanded_index = selected_pos.unsqueeze(-1).expand(-1, -1, H)  # [B, chunk, H]
-        return last_hidden.gather(dim=1, index=expanded_index)  # [B, chunk, H]
+        """Delegate to the ``last_hidden_tokens`` connector's shared gather
+        (spec §6.3: the connector layer owns this logic)."""
+        return gather_action_token_embeddings(
+            last_hidden, input_ids, action_token_id, self.action_horizon
+        )

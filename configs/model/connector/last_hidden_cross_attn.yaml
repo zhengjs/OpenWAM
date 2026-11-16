@@ -1,0 +1,2 @@
+# QwenGR00T conditioning: last hidden state -> DiT cross-attention (spec §6.3).
+name: last_hidden_cross_attn

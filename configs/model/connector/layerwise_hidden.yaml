@@ -1,0 +1,4 @@
+# QwenPI conditioning: one stream per trailing VLM layer (spec_zh.md §6.3).
+# DiT depth pairs with the stream count; num_layers=null follows the VLM depth.
+name: layerwise_hidden
+num_layers: null
