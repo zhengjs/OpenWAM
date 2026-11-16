@@ -111,7 +111,7 @@ def test_per_step_seed_unique_per_step_and_rank():
 #
 # 1. **Worker RNGs are seeded** — ``dataloader_worker_init_fn`` actually seeds
 #    Python ``random`` and NumPy inside each worker process. Without this,
-#    the augmentations in ``openwam/dataloader/transforms/video.py`` use the
+#    the augmentations in ``openwam/dataloader/utils/video_augment.py`` use the
 #    worker's default time/PID-derived RNG and ablations are not comparable.
 #
 # 2. **Augmentations differ across epochs (single run)** — the *most important*
@@ -146,7 +146,7 @@ class _RNGSensitiveDataset(Dataset):
         return self.size
 
     def __getitem__(self, idx: int) -> dict[str, Any]:
-        # Mirror what openwam/dataloader/transforms/video.py does:
+        # Mirror what openwam/dataloader/utils/video_augment.py does:
         # random.uniform / random.random + np.random.random.
         return {
             "idx": idx,
@@ -188,7 +188,7 @@ def test_worker_init_fn_seeds_python_and_numpy(monkeypatch: pytest.MonkeyPatch):
     """``dataloader_worker_init_fn`` must seed both ``random`` and ``numpy``.
 
     Without this, augmentations like ``random.uniform(...)`` in
-    transforms/video.py keep using the worker's default RNG.
+    video_augment.py keep using the worker's default RNG.
     """
 
     # Drive the helper as if we were inside a worker with info.seed=12345.

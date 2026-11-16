@@ -11,7 +11,7 @@ inference.
 
 Traversal matches training: the dataset, ``collate_fn=list``, ``num_workers``
 and the ``cfg.project.seed`` worker-seeding (so the train-time augmentation in
-``openwam/dataloader/transforms/video.py`` is reproduced) are all inherited from
+``openwam/dataloader/utils/video_augment.py`` is reproduced) are all inherited from
 ``train.yaml``. Across ranks the dataset is partitioned by a *non-padding*
 strided sampler over one shared shuffled permutation, so the union is the full
 dataset with no duplicates (unlike ``DistributedSampler``, which pads).

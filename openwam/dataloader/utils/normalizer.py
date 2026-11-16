@@ -16,7 +16,6 @@ from typing import Dict, Optional
 import numpy as np
 import torch
 
-from openwam.dataloader.transforms.base import InvertibleModalityTransform
 from openwam.dataloader.utils.normalization import NORM_EPS, apply_normalization
 
 _NORMALIZE_STATS_KEY = "_normalize_stats"
@@ -30,7 +29,7 @@ class NormMode(str, Enum):
     SCALE = "scale"
 
 
-class Normalizer(InvertibleModalityTransform):
+class Normalizer:
     """Multi-strategy normalizer for continuous data.
 
     Args:
@@ -55,7 +54,6 @@ class Normalizer(InvertibleModalityTransform):
         binary_threshold: float = 0.5,
         eps: float = NORM_EPS,
     ):
-        super().__init__(apply_to=["action"])
         self.mode = NormMode(mode)
         raw_stats = stats or {}
         self.stats = {key: value for key, value in raw_stats.items() if key != _NORMALIZE_STATS_KEY}
@@ -163,25 +161,6 @@ class Normalizer(InvertibleModalityTransform):
 
         return (x / self._scale) + self._offset
 
-    def apply(self, data: dict) -> dict:
-        for key in self.apply_to:
-            if key in data and data[key] is not None:
-                val = data[key]
-                if isinstance(val, torch.Tensor):
-                    data[key] = torch.from_numpy(self.normalize(val.numpy()))
-                elif isinstance(val, np.ndarray):
-                    data[key] = self.normalize(val)
-        return data
-
-    def unapply(self, data: dict) -> dict:
-        for key in self.apply_to:
-            if key in data and data[key] is not None:
-                val = data[key]
-                if isinstance(val, torch.Tensor):
-                    data[key] = torch.from_numpy(self.unnormalize(val.numpy()))
-                elif isinstance(val, np.ndarray):
-                    data[key] = self.unnormalize(val)
-        return data
 
 
 # ---------------------------------------------------------------------------

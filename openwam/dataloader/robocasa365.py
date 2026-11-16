@@ -30,11 +30,11 @@ import pandas as pd
 import torch
 
 from openwam.dataloader.bases import BaseDataset
-from openwam.dataloader.transforms.multiview import (
+from openwam.dataloader.utils.multiview import (
     assemble_multiview_layout,
     crop_and_resize,
 )
-from openwam.dataloader.transforms.video import VideoColorJitter, color_jitter_enabled
+from openwam.dataloader.utils.video_augment import VideoColorJitter, color_jitter_enabled
 from openwam.dataloader.utils import get_cfg
 from openwam.dataloader.utils.eef import build_action_mask_2d, build_proprio_mask_2d
 from openwam.dataloader.utils.lerobotv3 import compute_file_local_offsets, load_episodes_parquet

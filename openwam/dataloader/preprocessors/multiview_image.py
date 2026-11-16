@@ -4,7 +4,7 @@
 ``mode`` selects the mutually-exclusive layout (contracts §1.2):
 
 - ``wam_canvas``: composite the camera views into ONE canvas per frame
-  (reuses ``transforms/multiview.py::assemble_multiview_layout``), output
+  (reuses ``utils/multiview.py::assemble_multiview_layout``), output
   ``pixel_values`` ``[T_obs, C, H, W]``.
 - ``standard_tensor``: per-camera tensors, NO upsampling (only optional
   ``per_cam_resolution`` downscale), output ``pixel_values_by_cam``.
@@ -26,7 +26,7 @@ from PIL import Image
 
 from openwam.contracts.data_contract import PipelineContext
 from openwam.dataloader.preprocessors.base import BasePreprocessor
-from openwam.dataloader.transforms.multiview import assemble_multiview_layout
+from openwam.dataloader.utils.multiview import assemble_multiview_layout
 
 __all__ = ["MultiViewImageProcessor"]
 

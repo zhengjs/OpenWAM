@@ -10,7 +10,7 @@ leak into deployment). Produces:
 
 Color jitter (training-only, time-consistent: factors sampled ONCE per sample,
 applied across all frames of all cameras) moved here from
-``transforms/video.py`` — decode-stage augmentation.
+``utils/video_augment.py`` — decode-stage jitter moved to the decode processor.
 """
 
 from __future__ import annotations

@@ -95,7 +95,7 @@ class ObsPreprocessor:
     @classmethod
     def from_cfg(cls, cfg, engine=None) -> "ObsPreprocessor":
         """Resolve the view config from the saved checkpoint cfg (+ engine fallback)."""
-        from openwam.dataloader.transforms.multiview import DEFAULT_MULTIVIEW_CAMERA_LAYOUT
+        from openwam.dataloader.utils.multiview import DEFAULT_MULTIVIEW_CAMERA_LAYOUT
 
         dl = getattr(cfg, "dataloader", None)
         multiview = bool(getattr(dl, "multiview", False)) if dl is not None else False
@@ -129,7 +129,7 @@ class ObsPreprocessor:
         """
         from PIL import Image
 
-        from openwam.dataloader.transforms.multiview import (
+        from openwam.dataloader.utils.multiview import (
             assemble_multiview_layout,
             crop_and_resize,
         )

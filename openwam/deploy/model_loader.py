@@ -299,7 +299,7 @@ def _build_inner_normalizer(cfg: DictConfig, ckpt_dir: str):
         )
     logger.info("[normalizer] Found pre-computed stats file: %s (exists ✓)", stats_path)
 
-    from openwam.dataloader.transforms.normalize import (
+    from openwam.dataloader.utils.normalizer import (
         YAML_TO_NORM_MODE,
         Normalizer,
         load_mode_stats,

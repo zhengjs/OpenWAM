@@ -74,8 +74,8 @@ import torch
 from PIL import Image
 
 from openwam.dataloader.bases import BaseDataset
-from openwam.dataloader.transforms.multiview import assemble_multiview_layout, format_prompt_for_inference
-from openwam.dataloader.transforms.video import VideoColorJitter, color_jitter_enabled
+from openwam.dataloader.utils.multiview import assemble_multiview_layout, format_prompt_for_inference
+from openwam.dataloader.utils.video_augment import VideoColorJitter, color_jitter_enabled
 from openwam.dataloader.utils.eef import assert_unit_quaternion, quat_xyzw_to_rot6d
 from openwam.dataloader.utils.normalization import apply_normalization
 from openwam.dataloader.utils.unify_action import UNIFY_DIM, map_to_unify, parse_unify_spec

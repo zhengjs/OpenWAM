@@ -15,7 +15,7 @@ import pytest
 from PIL import Image
 
 from benchmarks.utils import encode_numpy_b64, resize_for_lshape_slot
-from openwam.dataloader.transforms.multiview import (
+from openwam.dataloader.utils.multiview import (
     DEFAULT_MULTIVIEW_CAMERA_LAYOUT,
     format_prompt_for_inference,
 )

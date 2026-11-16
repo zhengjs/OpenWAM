@@ -125,7 +125,7 @@ def _read_eef_actions(f) -> Optional[np.ndarray]:
     if "endpose/left_endpose" not in f:
         return None
     # Local import avoids a hard dependency when only joint is needed in tests
-    from openwam.dataloader.transforms.rotation import quat_xyzw_to_rotation_6d
+    from openwam.dataloader.utils.rotation import quat_xyzw_to_rotation_6d
 
     left_ep = f["endpose/left_endpose"][()].astype(np.float64)
     right_ep = f["endpose/right_endpose"][()].astype(np.float64)

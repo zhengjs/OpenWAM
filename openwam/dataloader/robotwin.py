@@ -23,19 +23,19 @@ import torch
 from PIL import Image
 
 from openwam.dataloader.bases import BaseDataset
-from openwam.dataloader.transforms.multiview import (
+from openwam.dataloader.utils.multiview import (
     DEFAULT_MULTIVIEW_CAMERA_LAYOUT,
     assemble_multiview_layout,
     crop_and_resize,
     format_prompt_for_inference,
 )
-from openwam.dataloader.transforms.normalize import (
+from openwam.dataloader.utils.normalizer import (
     YAML_TO_NORM_MODE,
     Normalizer,
     load_mode_stats,
 )
-from openwam.dataloader.transforms.rotation import quat_xyzw_to_rotation_6d
-from openwam.dataloader.transforms.video import VideoColorJitter, color_jitter_enabled
+from openwam.dataloader.utils.rotation import quat_xyzw_to_rotation_6d
+from openwam.dataloader.utils.video_augment import VideoColorJitter, color_jitter_enabled
 from openwam.dataloader.utils.unify_action import (
     UNIFY_DIM,
     map_to_unify,

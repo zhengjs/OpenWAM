@@ -54,16 +54,16 @@ from openwam.dataloader.robodojo_contract import (
     validate_dataset_variant,
     validate_embodiment,
 )
-from openwam.dataloader.transforms.multiview import (
+from openwam.dataloader.utils.multiview import (
     assemble_multiview_layout,
     crop_and_resize,
     format_prompt_for_inference,
 )
-from openwam.dataloader.transforms.normalize import (
+from openwam.dataloader.utils.normalizer import (
     YAML_TO_NORM_MODE,
     Normalizer,
 )
-from openwam.dataloader.transforms.video import VideoColorJitter, color_jitter_enabled
+from openwam.dataloader.utils.video_augment import VideoColorJitter, color_jitter_enabled
 from openwam.dataloader.utils.normalization import ROT6D_DIMS_EEF20, STAT_KEYS
 from openwam.dataloader.utils.poses import (
     arms_to_eef20,

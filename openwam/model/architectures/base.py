@@ -933,7 +933,7 @@ class BaseWAMArchitecture(BaseArchitecture):
             Dict with all preprocessed video latents, text embeddings, action
             tensors, masks, and forward-time flags ready for ``compute_loss``.
         """
-        from openwam.dataloader.transforms.pipeline import FirstFrameConditioningTransform
+        from openwam.dataloader.utils.first_frame import FirstFrameConditioningTransform
         from openwam.model.architectures.utils.common import downsample_video_mask_to_latent
 
         if isinstance(batch, dict):

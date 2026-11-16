@@ -70,8 +70,8 @@ import pyarrow.parquet as pq
 import torch
 
 from openwam.dataloader.bases.dataset import BaseDataset
-from openwam.dataloader.transforms.multiview import assemble_multiview_layout
-from openwam.dataloader.transforms.video import VideoColorJitter, color_jitter_enabled
+from openwam.dataloader.utils.multiview import assemble_multiview_layout
+from openwam.dataloader.utils.video_augment import VideoColorJitter, color_jitter_enabled
 from openwam.dataloader.utils.eef import (
     EEF_DIM,
     build_action_mask_2d,

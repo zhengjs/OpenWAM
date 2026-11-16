@@ -18,7 +18,6 @@ from typing import List, Optional
 
 import numpy as np
 
-from openwam.dataloader.transforms.base import InvertibleModalityTransform
 
 
 class RotationType(str, Enum):
@@ -186,73 +185,3 @@ def rotation_6d_to_quat_xyzw(r6d: np.ndarray) -> np.ndarray:
     wxyz = convert_rotation(r6d, RotationType.ROTATION_6D, RotationType.QUATERNION)
     return np.concatenate([wxyz[..., 1:], wxyz[..., :1]], axis=-1)
 
-
-class RotationTransform(InvertibleModalityTransform):
-    """Convert rotation components in action vectors between representations.
-
-    Args:
-        source_repr: Current rotation representation in the data.
-        target_repr: Desired rotation representation after transform.
-        keys: Sample dict keys to transform (default: ["action"]).
-        rotation_slice: Slice into the action vector for rotation dimensions.
-            e.g., slice(3, 6) for standard 7D EEF actions [pos(3), rot(3), grip(1)].
-    """
-
-    def __init__(
-        self,
-        source_repr: str,
-        target_repr: str,
-        keys: Optional[List[str]] = None,
-        rotation_slice: slice = slice(3, 6),
-    ):
-        super().__init__(apply_to=keys or ["action"])
-        self.source = RotationType(source_repr)
-        self.target = RotationType(target_repr)
-        self.rotation_slice = rotation_slice
-        self.source_dim = _REPR_DIM[self.source]
-        self.target_dim = _REPR_DIM[self.target]
-
-    def _transform_array(self, x: np.ndarray, source: RotationType, target: RotationType) -> np.ndarray:
-        """Transform rotation components within an action array."""
-        s = self.rotation_slice
-        rot_data = x[..., s]
-
-        converted = convert_rotation(rot_data, source, target)
-
-        # Reconstruct the action vector with new rotation dim
-        pre = x[..., : s.start]
-        post = x[..., s.stop :]
-        return np.concatenate([pre, converted, post], axis=-1).astype(np.float32)
-
-    def apply(self, data: dict) -> dict:
-        import torch as _torch
-
-        for key in self.apply_to:
-            if key in data and data[key] is not None:
-                val = data[key]
-                is_tensor = isinstance(val, _torch.Tensor)
-                arr = val.numpy() if is_tensor else val
-                arr = self._transform_array(arr, self.source, self.target)
-                data[key] = _torch.from_numpy(arr) if is_tensor else arr
-        return data
-
-    def unapply(self, data: dict) -> dict:
-        import torch as _torch
-
-        for key in self.apply_to:
-            if key in data and data[key] is not None:
-                val = data[key]
-                is_tensor = isinstance(val, _torch.Tensor)
-                arr = val.numpy() if is_tensor else val
-                # Reverse: target → source, but with adjusted slice for target dim
-                reverse_slice = slice(
-                    self.rotation_slice.start,
-                    self.rotation_slice.start + self.target_dim,
-                )
-                rot_data = arr[..., reverse_slice]
-                converted = convert_rotation(rot_data, self.target, self.source)
-                pre = arr[..., : reverse_slice.start]
-                post = arr[..., reverse_slice.stop :]
-                arr = np.concatenate([pre, converted, post], axis=-1).astype(np.float32)
-                data[key] = _torch.from_numpy(arr) if is_tensor else arr
-        return data
