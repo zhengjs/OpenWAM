@@ -1,7 +1,8 @@
 defaults:
   - model: dual_system            # [Optional]: dual_system(default), single_system, tri_system, vla
-  - dataloader: robotwin          # [Optional]: robotwin(default), mixture (four-source pretraining), ebench, robocasa365, robocasa_gr1, robodojo, vlabench, libero
-                                  #             (vla needs robotwin_vla: raw-width actions + short window)
+  - dataloader: robot/robotwin    # [Optional]: robot/robotwin(default), robot/mixture (four-source pretraining), robot/{ebench, robocasa365,
+                                  #             robocasa_gr1, robodojo, vlabench, libero}; driving/lance_clip (Track B, VLA driving suite)
+                                  #             (vla needs robot/robotwin_vla: raw-width actions + short window)
   - _self_
 
 training:

@@ -1,0 +1,14 @@
+# Track B driving suite: Lance sample index + raw clips (spec_data_zh.md §4).
+# Requires: tools/ingest_lance.py output (lance_indices/<name>.lance +
+# dataset_statistics.json) and the lance package installed.
+defaults:
+  - preprocessors/driving_default@preprocessor_chain
+  - _self_
+
+type: lance_clip
+
+dataset_dir: /mnt/data/driving       # storage root containing raw_clips/ + lance_indices/
+dataset_name: driving_v1             # -> lance_indices/driving_v1.lance
+stats_path: ${dataloader.dataset_dir}/dataset_statistics.json
+
+scene_tags: null                     # e.g. [urban, night] (any-match filter)

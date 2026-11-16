@@ -5,7 +5,7 @@ real-robot corpora — through its standard training pipeline:
 
 ```bash
 python scripts/download_assets/download_benchmark_data.py   # RoboDojo / RoboDojo-Real
-bash scripts/train.sh dataloader=robodojo
+bash scripts/train.sh dataloader=robot/robodojo
 ```
 
 See `configs/dataloader/robodojo.yaml` for the dataloader configuration (sim vs. real

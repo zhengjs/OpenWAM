@@ -1,0 +1,35 @@
+# Shared driving preprocessor chain (spec_data_zh.md §5).
+# Order IS the contract: decode → sync → ego_state → image → prompt.
+# Training-only stages (multicam_decode, topic_sync) are dropped automatically
+# on the inference path.
+chain:
+  - name: multicam_decode
+    kwargs:
+      color_jitter: null            # e.g. {brightness: 0.2, contrast: 0.2, saturation: 0.2}
+      lru_size: 4
+
+  - name: topic_sync
+    kwargs:
+      t_hist: 1                     # == dataset_statistics.json T_hist
+      stride_us: 100000
+      tolerance_us: null            # §12 O1: production defaults undecided
+      overflow: nearest
+      rot6d_source: null            # e.g. yaw_quat (must match ingest --rot6d-source)
+
+  - name: ego_state
+    kwargs:
+      stats_path: ${dataloader.stats_path}
+
+  - name: multiview_image
+    kwargs:
+      mode: qwen_vl_patch           # wam_canvas | standard_tensor | qwen_vl_patch
+      # wam_canvas: camera_layout: [cam_front, cam_left, cam_rear], canvas_size: [384, 320]
+      # standard_tensor: per_cam_resolution: {cam_front: [H, W], ...}
+      patch_size: 14
+      merge_size: 2
+
+  - name: vla_prompt
+    kwargs:
+      tokenizer: null               # HF tokenizer name/path
+      camera_tokens: null           # e.g. "<cam_front><cam_left><cam_rear>"
+      use_state2str: false

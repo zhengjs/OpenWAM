@@ -69,7 +69,7 @@ def test_vla_yaml_hydra_composes():
 
     cfg_dir = os.path.abspath("configs")
     with initialize_config_dir(config_dir=cfg_dir, version_base=None):
-        cfg = compose(config_name="train", overrides=["model=vla", "dataloader=robotwin_vla"])
+        cfg = compose(config_name="train", overrides=["model=vla", "dataloader=robot/robotwin_vla"])
 
     assert cfg.model.architecture.framework == "vla"
     assert cfg.model.architecture.variant == "oftp"
@@ -93,7 +93,7 @@ def test_vla_yaml_pi_variant_override_composes():
     cfg_dir = os.path.abspath("configs")
     overrides = [
         "model=vla",
-        "dataloader=robotwin_vla",
+        "dataloader=robot/robotwin_vla",
         "model.architecture.variant=pi",
         "model.architecture.action_head.action_model_type=LayerwiseFM",
     ]

@@ -183,7 +183,7 @@ to that host tree (default `./assets`), and pass explicit **container** paths:
 
 ```bash
 docker compose run --rm train train \
-  dataloader=libero training.debug=true training.num_epochs=null training.batch_size=1 \
+  dataloader=robot/libero training.debug=true training.num_epochs=null training.batch_size=1 \
   dataloader.dataset_dir=/opt/openwam/assets/benchmark_data/libero \
   model.video_backbone.model_path=/opt/openwam/assets/video_backbone_ckpt/Wan2.2-TI2V-5B
 ```

@@ -15,7 +15,7 @@ def test_training_does_not_warm_start_from_a_placeholder_by_default():
 
 def test_pretraining_defaults_load_all_four_final_datasets():
     with initialize_config_dir(config_dir=str(REPO_ROOT / "configs"), version_base=None):
-        config = compose(config_name="train", overrides=["dataloader=mixture"])
+        config = compose(config_name="train", overrides=["dataloader=robot/mixture"])
 
     expected = {
         "agibotworld": "AgiBotWorld-Beta",
@@ -40,7 +40,7 @@ def test_pretraining_defaults_load_all_four_final_datasets():
 @pytest.mark.parametrize("name", ["agibotworld", "robocoin", "oxe_droid", "interndata_a1"])
 def test_flat_pretraining_configs_compose_as_standalone_dataloaders(name):
     with initialize_config_dir(config_dir=str(REPO_ROOT / "configs"), version_base=None):
-        config = compose(config_name="train", overrides=[f"dataloader={name}"])
+        config = compose(config_name="train", overrides=[f"dataloader=robot/{name}"])
     assert config.dataloader.type == name
     assert config.dataloader.num_frames == 33
     assert config.dataloader.video_stride == 4
@@ -52,7 +52,7 @@ def test_mixture_hydra_source_overrides_remain_independent():
         config = compose(
             config_name="train",
             overrides=[
-                "dataloader=mixture",
+                "dataloader=robot/mixture",
                 "dataloader.datasets.robocoin.dataset_dir=/tmp/relocated_robocoin",
                 "dataloader.datasets.oxe_droid.enabled=false",
                 "dataloader.datasets.interndata_a1.total_hours=1.5",

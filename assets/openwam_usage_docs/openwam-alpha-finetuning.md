@@ -111,7 +111,7 @@ Select the reader and foundation checkpoint:
 ~~~bash
 # Dataset, foundation model, run length, and output
 NPROC_PER_NODE=8 bash scripts/train.sh \
-  dataloader=my_task \
+  dataloader=robot/my_task \
   training.finetune_ckpt_path=<foundation_ckpt_path> \
   training.num_epochs=5 \
   project.output_dir=<output_dir_path>

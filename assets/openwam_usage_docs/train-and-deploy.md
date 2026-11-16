@@ -171,7 +171,7 @@ Readers are under openwam/dataloader/ and configs under configs/dataloader/. Sel
 ~~~bash
 # Select the dataloader and dataset
 bash scripts/train.sh \
-  dataloader=libero \
+  dataloader=robot/libero \
   dataloader.dataset_dir=<dataset_dir_path> \
   dataloader.unify_action=true \
   dataloader.num_frames=33 \
@@ -188,7 +188,7 @@ With a pretrained video backbone, a fresh run loads the selected components and 
 
 ~~~bash
 # Model and dataloader
-bash scripts/train.sh model=dual_system dataloader=robotwin \
+bash scripts/train.sh model=dual_system dataloader=robot/robotwin \
   dataloader.dataset_dir=<dataset_dir_path> \
   training.output_path=<output_dir_path> \
   training.batch_size=1 \

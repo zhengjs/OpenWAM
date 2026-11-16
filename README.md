@@ -318,7 +318,7 @@ Wan2.2-TI2V-5B video backbone, and the Mutual attention mask.
 
    ~~~bash
    bash scripts/train.sh \
-     dataloader=libero \
+     dataloader=robot/libero \
      model=dual_system \
      model/video_backbone=wan22_ti2v_5b \
      model.architecture.variant=joint_self_attn \
@@ -362,7 +362,7 @@ Wan2.2-TI2V-5B video backbone, and the Mutual attention mask.
 Use the four cleaned LeRobot v3 datasets with the shared mixture configuration:
 
 ~~~bash
-bash scripts/train.sh dataloader=mixture
+bash scripts/train.sh dataloader=robot/mixture
 ~~~
 
 [`configs/dataloader/mixture.yaml`](configs/dataloader/mixture.yaml) enables
@@ -390,7 +390,7 @@ CSV, exclusion list, or statistics generation step.
 
    ~~~bash
    bash scripts/train.sh \
-     dataloader=libero \
+     dataloader=robot/libero \
      training.finetune_ckpt_path=<foundation_ckpt_dir_path>
    ~~~
 

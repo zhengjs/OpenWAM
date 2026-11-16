@@ -202,7 +202,7 @@ environment, not the VLABench one.
 ```bash
 python scripts/download_assets/download_benchmark_data.py   # menu: VLABench (~13.2 GB)
 bash scripts/train.sh \
-  dataloader=vlabench \
+  dataloader=robot/vlabench \
   training.finetune_ckpt_path=assets/openwam_ckpt/openwam_alpha/OpenWAM-Alpha-Pretrain-Foundation-Model
 ```
 
