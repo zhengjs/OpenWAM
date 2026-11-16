@@ -17,7 +17,21 @@ freeze:
 
 architecture:
   framework: vla
-  variant: oftp             # oftp | pi | groot
+  variant: oftp             # oftp | pi | groot — preset selector; composing with
+                            #   framework=vla, registry key vla_system. The legacy
+                            #   vla_qwen_oft/pi/groot subclasses remain equivalent
+                            #   (loss-reproduction gate).
+  # Conditioning connector (spec §6.3). null = follow the variant preset
+  # (oftp -> last_hidden_tokens, pi -> layerwise_hidden,
+  #  groot -> last_hidden_cross_attn). Override for yaml-level new
+  # combinations; kwargs auto-bound to VLM shape fields (num_layers /
+  # action_horizon) unless given explicitly.
+  connector: null
+  connector_kwargs: {}
+
+  # Co-training (spec §6.5): language CE weight; null/0 = head-only.
+  # Requires a trainable VLM — remove the freeze block above when > 0.
+  vlm_loss_weight: 0.0
 
   # Deployment-side obs resize (H, W); null = keep the dataloader resolution.
   obs_image_size: null

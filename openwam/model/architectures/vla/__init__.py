@@ -13,10 +13,12 @@ from openwam.model.architectures.vla.base_vla import BaseVLAArchitecture
 from openwam.model.architectures.vla.qwen_groot import QwenGR00TArchitecture
 from openwam.model.architectures.vla.qwen_oft import QwenOFTArchitecture
 from openwam.model.architectures.vla.qwen_pi import QwenPIArchitecture
+from openwam.model.architectures.vla.vla_system import VLASystemArchitecture
 
 __all__ = [
     "BaseVLAArchitecture",
     "QwenOFTArchitecture",
     "QwenPIArchitecture",
     "QwenGR00TArchitecture",
+    "VLASystemArchitecture",
 ]
