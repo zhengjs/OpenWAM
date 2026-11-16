@@ -44,6 +44,13 @@
   位置在块 4(原始解码物理量)末尾,与 `raw_trajectory_valid_mask` 并列。collate 将其
   堆叠为 `ModelInputBatch.video_mask`。
 
+- **`ego_state_mask` 入两契约。** Track A 读取器的 `proprio_mask`(逐维状态有效性,2-D
+  `(1, D)`)被 `prepare_inputs` 桥接进 `inputs["proprio_mask"]`,但两个契约均无槽位。按
+  §3.2 命名规约(mask 按所掩蔽序列命名,状态序列 = `ego_state_tensor`)落位为
+  `ego_state_mask`:`PipelineContext` 块 5(`ego_state_tensor` 旁,`[D]`/`[T_hist, D]`),
+  `ModelInputBatch`(`[B, T_hist, D]`);collate 复用既有 1-D/2-D 调和后堆叠。驾驶状态恒
+  有效 ⇒ None。
+
 - **`frame_timestamps_ns` 由解码器填充。** §5.2 的 Lance 索引未列该列,而 §3.1 块 3 要求
   它存在于每个 Track B 运行。裁定:该字段是**解码期**产物 —— `MultiCamVideoDecoder`
   从 MP4 的 PTS 提取每相机曝光时刻填充;不进 Lance、不在 ingest 预计算。
@@ -132,7 +139,7 @@ class PreprocessorChainConfig:
 包进 `PipelineContext`。
 
 **数据流**:`LeRobotV3Reader.__getitem__` → canonical dict(`video`/`action`/`action_mask`
-/`video_mask`/`proprio`/`proprio_mask`/`prompt`) → `track_a_sample_to_context(dict) →
+/`video_mask`/`proprio`/`proprio_mask`/`prompt`) → `robot_sample_to_context(dict) →
 PipelineContext` → collate。**Track A 的预处理器链为空** —— 读取器已在内部完成
 解码/多视图合成/归一化,适配器只做字段重命名(见 §7 待确认)。
 
@@ -145,7 +152,7 @@ PipelineContext` → collate。**Track A 的预处理器链为空** —— 读�
 | `action`(已归一化) | `gt_trajectory_norm` | 读取器已归一化,不重走 `EgoStateProcessor`(非 `raw_*`) |
 | `action_mask` | `trajectory_mask` | 2-D `[T_pred, D]`,80-D 保留维在损失外 |
 | `proprio` | `ego_state_tensor` | `[1, D]` |
-| `proprio_mask` | (入 `trajectory_mask`/ego 掩码) | 沿用读取器口径 |
+| `proprio_mask` | `ego_state_mask` | 逐维状态有效性;按 §3.2 命名规约落位(见 §1.1) |
 | `prompt` | `prompt`(WAM) 或 `input_ids`(VLA 经 tokenize) | VLA Track A 走 `VLAPromptTokenizeProcessor` |
 | 簿记 | `sample_id`/`clip_uri`/`source_name`/`nav_instruction` | `clip_uri`=dataset_dir;`anchor_timestamp_us`=0 合成;`cam_frame_offsets`={} |
 
@@ -153,11 +160,14 @@ PipelineContext` → collate。**Track A 的预处理器链为空** —— 读�
 /`raw_trajectory_valid_mask` 全为 None(Track A 无标定/时序、原始槽位被读取器内联消化)。
 `unify_action_map`、颜色抖动状态是**读取器内部**配置,不进上下文(§3.1 Track A 映射规范)。
 
-对等闸口:固定种子下,adapters→空链→collate 产出的 `ModelInputBatch` 与今日 transforms
-路径**逐比特一致**(纯字段重命名,由回归测试钉死);闸口通过后按 §10 P2 删除 `transforms/`
-包(独立 PR)。`video` 的 PIL→tensor 转换发生在图像处理器,而 Track A 已由读取器产出
-canvas,故适配器直接用读取器内部同一 `assemble_multiview_layout` 的结果 —— 唯一新增
-负担是 PIL→tensor + `permute` 的正确性由对等闸口验证。
+对等闸口(契约层,P2):固定种子下,adapters→空链→collate 产出的 `ModelInputBatch`
+与今日 transforms 路径在纯字段重命名上**逐比特一致**,且 `pixel_values` 精确恢复 uint8
+(`fl(fl(u8/255)*255)==u8`,模型侧按 `(x*255)*(2/255)-1` 转换即与 wan preprocess 位等价),
+由 `test_robot_adapter_parity.py` 钉死。损失级位等价闸口随 P3 模型侧 `ModelInputBatch→forward`
+适配执行,通过后删除 `transforms/` 包(独立 PR)。`video` 的 PIL→tensor 转换发生在图像
+处理器,而 Track A 已由读取器产出 canvas,故适配器直接用读取器内部同一
+`assemble_multiview_layout` 的结果 —— 唯一新增负担是 PIL→tensor + `permute` 的正确性由
+对等闸口验证。
 
 ---
 
@@ -225,7 +235,7 @@ calib.json
 
 ### 4.4 读取器
 
-- `lance_dataset.py::LanceClipDataset`:打开 `<dataset_name>.lance`,SQL 过滤下推
+- `autodriving_dataset.py::AutoDrivingDataset`:打开 `<dataset_name>.lance`,SQL 过滤下推
   (`lance.dataset(uri).to_table(filter=...)`)、列投影、`scene_tags` 子集/课程选择。
   `__getitem__` 产出一个 `PipelineContext` 的**索引块 + 原始块的一部分**:
   - 索引块全量(`sample_id`/`clip_uri`/`anchor_timestamp_us`/`cam_frame_offsets`/`source_name`),
@@ -280,9 +290,9 @@ calib.json
 实现要点:
 
 - `MixtureDataset.from_config` 已在 `build_dataset` 上多态;Track B 条目由注册表分派到
-  `LanceClipDataset`(经 `build_dataset`)。**无需改 index-map 逻辑** —— 只需让
+  `AutoDrivingDataset`(经 `build_dataset`)。**无需改 index-map 逻辑** —— 只需让
   `build_dataset` 能构造 Track B 类,以及 `shape_fields` 同源校验
-  (`num_frames/video_stride/height/width`,见 `mixture.py`)对 `LanceClipDataset` 解耦
+  (`num_frames/video_stride/height/width`,见 `mixture.py`)对 `AutoDrivingDataset` 解耦
   (Track B 的 `T_obs`/层级分辨率由 `MultiViewImageProcessor` 配置,不属读取器)。
 - `sample_weight`:数据集侧由权重器产出(先 `constant`),损失侧消费并做跨 rank 与累积步
   全局归一化(FluxVLA `reduce_action_bc_loss` 模式)。
@@ -315,7 +325,7 @@ calib.json
 
 **两层 dataset 包装**:
 
-- 底层:常规 map-style `LanceClipDataset`(以 Lance 表为核心,§4.4)。
+- 底层:常规 map-style `AutoDrivingDataset`(以 Lance 表为核心,§4.4)。
 - 上层:轻量分发器 `IterMixtureDataset`(区别于 epoch-based 的 `MixtureDataset`),持有多个底层
   dataset 实例;给定 `(dataset_index, sample_index)` 调对应 dataset 取样本。不做加权
   index-map、不做 `set_epoch`。
@@ -444,7 +454,7 @@ optimizer/scheduler/RNG 恢复属 `spec_zh.md` §7(不在本文档);此处约定
 
 | 阶段 | 范围 | 验收 |
 |---|---|---|
-| P1 | `contracts/` 数据侧(`data_contract.py` 含 `video_mask` 增补、`config_schema.py` 数据块;**不含 `collate.py`**)+ 归一化统计双读(§2)+ 遗留兼容(注册表不动、旧 checkpoint `config.yaml` 经 `resolve_architecture_config` 原样加载) | 现有 pytest 全绿;契约构建期校验快失败;遗留黄金 checkpoint 可加载 |
-| P2 | `contracts/collate.py` + Track A 适配器(§3)+ 预处理器链(`preprocessors/`)+ Track B(`lance_dataset.py`+`clip_reader.py`)+ `MixtureDataset` 跨格式与权重退火(§6.1)+ iter-based 管线(§6.2,`IterMixtureDataset`+`WeightAnnealingSampler` 在线/离线)+ `configs/dataloader/` 重组(`robot/`+`driving/`+`preprocessors/`,Hydra 包重映射,cfg 树回归)+ `tools/ingest_lance.py` | 固定种子下 Track A 经新管线(适配器→空链→collate)运行,损失与 transforms 路径**逐比特一致**(对等闸口);配置移动不改变组合出的 cfg 树;合成抖动同步闸口单测;退火权重各 epoch 归一化且重分配守恒单测;iter-based 在线/离线采样序列冒烟;`transforms/` 删除在闸口通过后独立 PR |
+| P1 | `contracts/` 数据侧(`data_contract.py` 含 `video_mask` 增补、`config_schema.py` 数据块;**不含 `collate.py`**)+ 遗留兼容(注册表不动、旧 checkpoint `config.yaml` 经 `resolve_architecture_config` 原样加载) | 现有 pytest 全绿;契约构建期校验快失败;遗留黄金 checkpoint 可加载 |
+| P2 | `contracts/collate.py` + Track A 适配器(`robot_data_adapter.py`,§3)+ 预处理器链(`preprocessors/`)+ 归一化统计双读(§2)+ Track B(`autodriving_dataset.py`+`clip_reader.py`)+ `MixtureDataset` 跨格式与权重退火(§6.1)+ iter-based 管线(§6.2,`IterMixtureDataset`+`WeightAnnealingSampler` 在线/离线)+ `configs/dataloader/` 重组(`robot/`+`driving/`+`preprocessors/`,Hydra 包重映射,cfg 树回归)+ `tools/ingest_lance.py` | 固定种子下 Track A 经新管线(适配器→空链→collate)**契约层位等价**:纯重命名字段(action/mask/proprio/prompt)与 transforms 路径逐比特一致,`pixel_values` 满足 `fl(fl(u8/255)*255)==u8` 精确恢复(模型侧按 `(x*255)*(2/255)-1` 转换即与 wan preprocess 位等价,见 `test_robot_adapter_parity.py`);配置移动不改变组合出的 cfg 树;退火权重各 epoch 归一化且重分配守恒单测;iter-based 在线采样序列/断点续训冒烟;**离线序列加载与 lance 写入随 lance 环境落地**。模型侧 `ModelInputBatch→forward` 适配与损失位等价闸口在 P3(随 connectors 一起,届时 wan 张量入口 + 变体条件接受张量首帧) |
 
-`transforms/` 删除仅发生在 P2 闸口通过后(独立 PR);五个注册表保留(§1.3 规则 1),不列入删除。
+`transforms/` 删除推迟到 P3 模型侧闸口(损失逐比特一致)通过后(独立 PR);五个注册表保留(§1.3 规则 1),不列入删除。
