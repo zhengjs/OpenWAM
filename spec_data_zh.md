@@ -266,11 +266,16 @@ calib.json
 
 ---
 
-## 6. 混合与加权(`MixtureDataset` 跨格式)
+## 6. 混合、加权与采样(Track A/B 跨格式)
 
-`spec_zh.md` §5.4:条目可指向任意 Track A 读取器**或** Track B 表;`weight_strategy`
-(`proportional/manual/uniform/inverse_size`)语义保留;逐 epoch 确定性重洗牌保留(带种子
-索引映射 — 现状行为)。
+`spec_zh.md` §5.4:条目可指向任意 Track A 读取器**或** Track B 表。存在两种训练范式,采样
+机制不同:**epoch-based**(跑满 epoch,现有 `MixtureDataset`)与 **iter-based**(固定总步数
+`max_steps`,大概率跑不满一个 epoch,自驾量产主路径)。
+
+### 6.1 epoch-based(现有 `MixtureDataset`)
+
+`weight_strategy`(`proportional/manual/uniform/inverse_size`)语义保留,新增 `annealed`
+(epoch 驱动权重退火,见下);逐 epoch 确定性重洗牌保留(带种子索引映射 — 现状行为)。
 
 实现要点:
 
@@ -283,6 +288,89 @@ calib.json
   全局归一化(FluxVLA `reduce_action_bc_loss` 模式)。
 - `source_name`:Track B 的 `source_name` 用 `<dataset_name>/<clip_id>` 或仅 `<dataset_name>`
   (由配置决定),供 mixture 日志与按源指标。
+
+- **权重退火(epoch 驱动,`weight_strategy: annealed`)**:每个子数据集给定 `weight_start`
+  + `weight_end`(相对权重,语义同 `weight`,构建期仍归一化到和=1),缺省回退到 `weight`
+  (静态)。退火进度随 epoch:线性 `alpha = e/(E-1)`(默认)或 cosine
+  `alpha = (1 - cos(e·π/(E-1)))/2`,`E` = `num_epochs`(训练引擎注入)。`set_epoch(e)` 先
+  算 `alpha(e)` → 更新 `_weights` → 再 `_build_index_map()`(复用现有重建);权重变化只在
+  各源间重分配虚拟样本(总数 ≈ `total_real`)。**step 级退火不在本路径**(归 iter-based,
+  §6.2):epoch-based 下改采样比例受 worker fork 约束,只能在 epoch 粒度生效。
+
+  ```yaml
+  type: mixture
+  weight_strategy: annealed
+  weight_anneal_schedule: cosine        # linear(默认) | cosine
+  datasets:
+    robocoin:   {enabled: true, weight_start: 0.1, weight_end: 1.0}
+    oxe_droid:  {enabled: true, weight_start: 1.0, weight_end: 0.5}
+  ```
+
+### 6.2 iter-based 数据管线(在线/离线采样序列)
+
+自驾数据量大、内容与量频繁变动 → **iter-based trainer**:固定总步数 `max_steps`,大概率跑
+不满一个 epoch(类比 LLM 固定 token 预算)。采样按"全局 step"驱动,不再按
+"epoch × len(dataset)"。**trainer 侧需改成 iter-based**(`spec_zh.md` §7 范围;数据层假设
+其已就位:按 `max_steps` 迭代,无 epoch 概念)。
+
+**两层 dataset 包装**:
+
+- 底层:常规 map-style `LanceClipDataset`(以 Lance 表为核心,§4.4)。
+- 上层:轻量分发器 `IterMixtureDataset`(区别于 epoch-based 的 `MixtureDataset`),持有多个底层
+  dataset 实例;给定 `(dataset_index, sample_index)` 调对应 dataset 取样本。不做加权
+  index-map、不做 `set_epoch`。
+
+**`WeightAnnealingSampler`(custom sampler)**,持有 `IterMixtureDataset`,按两类预生成序列取样本:
+
+1. **`dataset_index`**(采样哪个 dataset):每样本一个,长度 = `batch_size × total_steps`
+   (逐 rank)。由 **init/final weight** 迭代生成(退火进度,线性/cosine)。
+2. **`sample_index`**(该 dataset 内第几个样本):**每个 dataset 一条序列**,所有 rank 共享。
+
+**协同采样(rank/world_size 跳跃)**:某 dataset 的共享 `sample_index` 序列 `S_D`(同一
+种子、全 rank 一致),rank `r` 取位置 `r, r+w, r+2w, …`(stride = `world_size`);各 rank 拼
+起来恰好顺序覆盖 `S_D`,无重叠、无遗漏 —— "所有 rank 在同一套序列上协同采样"。
+
+**online 模式**(早期快速 baseline):
+
+- `dataset_index`:每个 rank 独立种子(与 `rank_index` 绑定),启动前按 `batch_size ×
+  total_steps` + init/final weight 预生成自己那份 `dataset_index`(不落盘)。
+- `sample_index`:每个 dataset 共享同一种子,生成该 dataset 的随机采样序列生成器;实际取
+  用按 rank/world_size 跳跃。
+- 特点:零额外存储、改配置即刻生效。
+
+**offline 模式**(后期迭代稳定,数据顺序成为资产):
+
+- 序列提前生成落盘,**保证所有训练任务数据一致**;数据顺序是迭代开发的一部分。
+- `dataset_index`:离线生成**一条全局 curriculum 序列**落盘(只存一份,复用 online 生成器
+  + 固定种子;生成时已按课程顺序提前排布好整条序列)。分布式训练**整体从前往后**消费 ——
+  每全局 step 消耗序列上一段长 `world_size × batch_size` 的**连续窗口**,rank `r` 取窗口
+  内第 `r` 个 `batch_size` 连续切片(**step 级交错,非逐 rank 连续块**);保证所有 rank 同刻
+  处于相近的 curriculum 相位。
+- `sample_index`:每个 dataset 各自一条序列、所有 rank 共享;加载时按跳跃逻辑,**每 rank
+  只保留自己要采的 index**(strided 切片,降内存)。
+- **比例调整只改槽位**:数据比例变化时,基于前一份 `dataset_index` 序列做**特定槽位的局部
+  改写**(而非整体重生成),避免"加一个/调一个数据集数量"导致全序列大抖动。要求序列存储
+  可版本化 + 可按槽位更新。
+- **world_size 不变性(后期,预留接口即可)**:后期存在不同卡数配置,需保证改 `world_size` 时
+  数据分布不变 —— 跳跃 stride 由**固定上限(最大步数/最大卡数)** 控制,而非绑定当前
+  `world_size`:全局序列一经生成,其 curriculum 顺序与各位置内容即固定,`world_size` 只决定
+  每全局 step 并发消化的位置数。生成器预留 `stride` 参数(当前默认 = `world_size`),后续参数
+  化不重排已有序列。
+
+**存储方式**:
+
+- 两类序列都是**数据资产**,都要**版本化**("比例调整只改槽位" = 在上一版序列上做差量)。
+- `dataset_index`:`[world_size × batch_size × total_steps]` int(数据集 id,量小)。→
+  **Lance 表**(单列,int;版本化 + 槽位级更新)。
+- `sample_index`:每个 dataset 一条记录序列,每条 = **样本身份**(`clip_uuid` + `frame_uuid`
+  + 相机/时间戳等),可达**亿级**。→ **Lance 表**(列式 + 版本化 + 随机/步进读 +
+  memory-mapped scan)。**排序键 = 显式 `order_id` 列**(int64 代用键,离线生成时写死,稳定
+  可 join):每 rank 按 `order_id % world_size == rank` 只加载自己 strided 切片;跨版本
+  "只改槽位"的差量也以 `order_id` 定位。用**身份而非位置索引**是为稳恒:数据表重排/插入
+  行时,身份仍指向同一物理样本。加载侧经 `clip_uuid` 直达 `raw_clips/<clip_uuid>/` 定位。
+- **memmap(`.npy`)不再适用**:`sample_index` 已非单 int64 数组,而是结构化身份字段 + 需版本
+  化;memmap 既表达不了多字段、也无可版本语义。
+- **pkl 排除**:eager 全量载入、无 memmap、对象开销大、无版本化/随机访问,亿级不可行。
 
 ---
 
@@ -302,6 +390,9 @@ calib.json
 - **O2 — 离线 VAE latent 预编码**:采纳则以 `LatentCacheReader` 处理器短路解码+编码,
   架构接受预计算 latent;决策须在 P2 结束前(影响 Lance schema 与 ingest 工具)。
 - **O5 — 数据治理**:去标识化与访问控制在 ingest 侧,所有权在本仓库之外确认。
+- **O6 — world_size 不变性(后期,预留接口即可)**:`dataset_index`(及后续 `sample_index`)
+  的跳跃 stride 由固定上限(最大步数/最大卡数)控制,而非绑定当前 `world_size`,改卡数不改
+  变数据分布;前期只**预留 `stride` 参数接口**(当前默认 = `world_size`),不实现其参数化扩展。
 
 ---
 
@@ -310,6 +401,6 @@ calib.json
 | 阶段 | 范围 | 验收 |
 |---|---|---|
 | P1 | `contracts/`(`data_contract.py` 含 `video_mask` 增补、`collate.py`、`config_schema.py` 数据块)+ 归一化统计双读(§2)+ Track A 适配器(§3)+ 遗留兼容(注册表不动、旧 checkpoint `config.yaml` 经 `resolve_architecture_config` 原样加载) | 现有 pytest 全绿;契约构建期校验快失败;Track A 适配器→空链→collate 与今日 transforms 路径**逐比特一致**(对等闸口回归);遗留黄金 checkpoint 可加载 |
-| P2 | Track B(`lance_dataset.py`+`clip_reader.py`)+ 预处理器链(`preprocessors/`)+ `MixtureDataset` 跨格式(§6)+ `configs/dataloader/` 重组(`robot/`+`driving/`+`preprocessors/`,Hydra 包重映射,cfg 树回归)+ `tools/ingest_lance.py` | 样本片段驾驶冒烟;配置移动不改变组合出的 cfg 树;合成抖动同步闸口单测;`transforms/` 删除在闸口通过后独立 PR |
+| P2 | Track B(`lance_dataset.py`+`clip_reader.py`)+ 预处理器链(`preprocessors/`)+ `MixtureDataset` 跨格式与权重退火(§6.1)+ iter-based 管线(§6.2,`IterMixtureDataset`+`WeightAnnealingSampler` 在线/离线)+ `configs/dataloader/` 重组(`robot/`+`driving/`+`preprocessors/`,Hydra 包重映射,cfg 树回归)+ `tools/ingest_lance.py` | 样本片段驾驶冒烟;配置移动不改变组合出的 cfg 树;合成抖动同步闸口单测;退火权重各 epoch 归一化且重分配守恒单测;iter-based 在线/离线采样序列冒烟;`transforms/` 删除在闸口通过后独立 PR |
 
 `transforms/` 删除仅发生在 P2 闸口通过后(独立 PR);五个注册表保留(§1.3 规则 1),不列入删除。
