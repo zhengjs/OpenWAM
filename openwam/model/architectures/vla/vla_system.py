@@ -41,6 +41,17 @@ from openwam.model.architectures.vla.base_vla import (
 )
 
 
+def _global_token_mean(sum_ce: Tensor, n_tokens: Tensor) -> Tensor:
+    """Global token-sum CE normalization (§6.5, FluxVLA ``causal_lm`` pattern):
+    all-reduce (sum_ce, n_tokens) across ranks when distributed, then divide —
+    every rank gets the identical scalar, so long sequences on one rank don't
+    dominate per-rank gradients."""
+    total = torch.stack([sum_ce.float().reshape(()), n_tokens.float().reshape(())])
+    if torch.distributed.is_available() and torch.distributed.is_initialized():
+        torch.distributed.all_reduce(total)
+    return total[0] / total[1].clamp(min=1.0)
+
+
 class _VariantPreset:
     """Per-variant defaults + wiring facts (replaces subclass overrides)."""
 
@@ -253,7 +264,12 @@ class VLASystemArchitecture(BaseVLAArchitecture):
 
     # --- Conditioning through the connector layer ---
 
-    def _forward_loss(self, examples: list[dict]) -> Tensor:
+    def _coforward(self, examples: list[dict]) -> tuple[Tensor, Optional[Tensor]]:
+        """One encode, both legs (§6.5 single-backward rule): the action leg
+        through the connector/head, plus the optional language CE leg when
+        ``vlm_loss_weight > 0``. With the weight at 0 the VLM leg is skipped
+        entirely — RNG consumption is identical to the legacy single-leg path
+        (pinned by the loss-reproduction test)."""
         hidden, attention_mask, vlm_inputs = self._encode(
             examples, num_last_layers=self._num_last_layers()
         )
@@ -267,12 +283,49 @@ class VLASystemArchitecture(BaseVLAArchitecture):
                 attention_mask = attention_mask.repeat(times, 1).to(dtype=torch.bool)
 
         cond = self._condition(hidden, attention_mask, vlm_inputs, times)
-        return self.action_backbone.compute_loss(
+        action_loss = self.action_backbone.compute_loss(
             self._head_conditioning(cond),
             actions,
             state=state,
             encoder_attention_mask=cond.condition_mask.to(dtype=torch.bool),
         )
+
+        vlm_loss = None
+        if self.vlm_loss_weight > 0:
+            if not hasattr(self.vlm_backbone, "compute_vlm_loss"):
+                raise TypeError(
+                    f"vlm_loss_weight > 0 requires the VLM backbone to expose compute_vlm_loss; "
+                    f"got {type(self.vlm_backbone).__name__}"
+                )
+            sum_ce, n_tokens = self.vlm_backbone.compute_vlm_loss(
+                vlm_inputs, labels=vlm_inputs.get("vlm_labels")
+            )
+            vlm_loss = _global_token_mean(sum_ce, n_tokens)
+        return action_loss, vlm_loss
+
+    def _forward_loss(self, examples: list[dict]) -> Tensor:
+        """Base-class contract: action leg only (legacy trainer path)."""
+        return self._coforward(examples)[0]
+
+    def compute_loss(self, *, batch=None, lambda_action: float = 1.0, lambda_video: float = 0.0, **_):
+        """Trainer entry with the §6.5 composition:
+        ``total = lambda_action * action_loss + vlm_loss_weight * vlm_loss``
+        — a single tensor, ONE backward. ``loss_vlm`` rides the trainer dict
+        for logging."""
+        if batch is None:
+            raise ValueError("VLA compute_loss requires the dataset batch (via prepare_inputs).")
+        if isinstance(batch, dict):
+            batch = [batch]
+        action_loss, vlm_loss = self._coforward(self._to_examples(batch))
+        total = lambda_action * action_loss
+        if vlm_loss is not None:
+            total = total + self.vlm_loss_weight * vlm_loss
+        return {
+            "loss": total,
+            "loss_video": torch.tensor(0.0, device=total.device),
+            "loss_action": (lambda_action * action_loss).detach(),
+            **({"loss_vlm": vlm_loss.detach()} if vlm_loss is not None else {}),
+        }
 
     def _predict(self, examples: list[dict]) -> Tensor:
         hidden, attention_mask, vlm_inputs = self._encode(

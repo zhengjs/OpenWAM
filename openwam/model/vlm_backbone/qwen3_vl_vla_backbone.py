@@ -152,6 +152,47 @@ class Qwen3VLVLABackbone(VlmBackbone):
 
     # --- VLA-specific entry point ---
 
+    def compute_vlm_loss(self, vlm_inputs: dict, labels: Optional[Tensor] = None) -> tuple[Tensor, Tensor]:
+        """Co-training leg (§6.5): token-sum language CE over the full VLM.
+
+        Runs the full ``vlm_model`` (with LM head — unlike
+        :meth:`forward_hidden_states`, which stops at the base model) and
+        returns ``(sum_ce, n_tokens)``, NOT a mean: the caller normalizes
+        with a GLOBAL token count (FluxVLA ``losses/causal_lm.py`` pattern)
+        so sequence-length bias cancels across ranks / accumulation steps.
+        ``labels=None`` shifts ``input_ids`` (pure next-token CE on the
+        prompt itself); ``-100`` positions are ignored either way.
+        """
+        batch = self.batch_vlm_inputs(vlm_inputs)
+        model_inputs = {}
+        for key, value in batch.items():
+            if key in {"pixel_values", "pixel_values_videos"}:
+                value = value.to(device=self.device, dtype=self.dtype)
+            else:
+                value = value.to(device=self.device)
+            model_inputs[key] = value
+
+        outputs = self.vlm_model(
+            **model_inputs,
+            past_key_values=None,
+            use_cache=False,
+            output_attentions=False,
+            output_hidden_states=False,
+            labels=labels,
+            return_dict=True,
+        )
+        logits = outputs.logits.float()
+        shift_logits = logits[:, :-1, :]
+        shift_labels = (labels if labels is not None else model_inputs["input_ids"])[:, 1:]
+        n_tokens = (shift_labels != -100).sum()
+        sum_ce = torch.nn.functional.cross_entropy(
+            shift_logits.reshape(-1, shift_logits.shape[-1]),
+            shift_labels.reshape(-1),
+            ignore_index=-100,
+            reduction="sum",
+        )
+        return sum_ce, n_tokens
+
     def forward_hidden_states(
         self, vlm_inputs: dict, *, num_last_layers: Optional[int] = None
     ) -> tuple[Union[Tensor, list[Tensor]], Optional[Tensor]]:

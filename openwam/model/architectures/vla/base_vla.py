@@ -143,6 +143,10 @@ class BaseVLAArchitecture(BaseArchitecture):
             self._init_vlm_backbone(cfg)
             self.action_backbone = self._init_action_head(cfg)
             self._repeated_diffusion_steps = int(self._cfg_get(cfg, "repeated_diffusion_steps", 1) or 1)
+            # Co-training weight (§6.5): 0/None = head-only. > 0 makes the VLM
+            # a training target — enforced against the freeze list in
+            # ``freeze_modules`` (build-time fast-fail).
+            self.vlm_loss_weight = float(self._cfg_get(cfg, "vlm_loss_weight", 0.0) or 0.0)
 
     def _init_vlm_backbone(self, cfg) -> None:
         """Build the VLM backbone from ``cfg.vlm_backbone`` via the registry.
@@ -166,6 +170,22 @@ class BaseVLAArchitecture(BaseArchitecture):
 
         head_cfg = self._cfg_get(cfg, "action_head", None)
         return build_vla_action_head(head_cfg)
+
+    def freeze_modules(self, names: list[str]) -> list[str]:
+        """Freeze with the co-training guard (§6.5): ``vlm_loss_weight > 0``
+        requires a trainable VLM — a freeze list that touches
+        ``vlm_backbone`` is a config contradiction and fast-fails here,
+        before the first training step."""
+        frozen = super().freeze_modules(names)
+        if self.vlm_loss_weight > 0:
+            hit = [n for n in frozen if n == "vlm_backbone" or n.startswith("vlm_backbone.")]
+            if hit:
+                raise ValueError(
+                    f"vlm_loss_weight={self.vlm_loss_weight} requires a trainable VLM, but the "
+                    f"freeze list freezes {hit}. Remove the vlm_backbone entries from `freeze:` "
+                    f"(or set vlm_loss_weight to 0 for head-only finetuning)."
+                )
+        return frozen
 
     def _expect_action_model_type(self, cfg, allowed: tuple, default: str) -> str:
         """Fail-fast when the yaml ``action_head.action_model_type`` conflicts
