@@ -1,5 +1,9 @@
-# Technical Specification: OpenWAM-AutoDrive — Refactoring & Extension (Rev 2)
+# Technical Specification: OpenWAM-AutoDrive — Refactoring & Extension (Rev 3)
 
+> **Rev 3 (2026-11-13)** — post-review revision: the decorator-registry mechanism is **retained**
+> (§1.3 rule 1 rewritten; the builder replacements and registry deletion targets are dropped) and
+> test-suite references are updated to the post-refactor suite. See §12 item 14.
+>
 > **Rev 2 (2026-11-11)** — revised after a full source-level audit of the OpenWAM codebase and of
 > `starVLA` / `FluxVLA`. Changes vs Rev 1 are summarized in §12; confirmed decisions in §1.2;
 > unresolved questions in §13.
@@ -35,18 +39,18 @@ autonomous-driving VLA/WAM suite by reusing:
 
 ### 1.3 Mandatory Engineering Rules
 
-1. **No Dynamic Registry Pattern.** Strictly forbid MMEngine/Detectron2-style
-   `@REGISTRY.register_module()` / `build_from_cfg(dict(type=...))` string reflection for **new**
-   code. All component instantiation uses **explicit typed factories** (`match-case` with direct
-   imports) so IDE go-to-definition and `mypy`/`pyright` work.
-   *Migration clause*: the repo currently has five decorator registries
-   (`model/architectures/registry.py`, `model/video_backbone/registry.py`,
+1. **Registry-Based Instantiation (kept).** Component instantiation continues through the repo's
+   decorator registries (`model/architectures/registry.py`, `model/video_backbone/registry.py`,
    `model/video_backbone/encoder/registry.py`, `model/vlm_backbone/registry.py`,
-   `dataloader/registry.py`). They are replaced by explicit builders per the phase plan (§10);
-   until a builder covers a component class, the registry for that class stays authoritative.
-   The `framework/variant → class` resolution logic of
-   `model/architectures/registry.py::resolve_architecture_config` is **preserved as a function**
-   inside `model/builder.py`, because legacy checkpoint configs depend on it (§5.3).
+   `dataloader/registry.py`). Review verdict: the current registries do **not** exhibit the
+   debug/navigation pain that motivates MMEngine-style bans elsewhere — registration is static
+   (one class per file, at import time), misconfiguration fails at build time, and call sites are
+   greppable — so they stay the authoritative mechanism and are **not** deletion targets. New
+   component classes (connectors, preprocessors, Track B readers) register through the same
+   pattern — in the existing registry for their component kind, or a new registry file beside
+   them. The `framework/variant → class` resolution logic of
+   `model/architectures/registry.py::resolve_architecture_config` stays where it is, because
+   legacy checkpoint configs depend on it (§4.3).
 2. **Pure-Tensor Model Graph.** `nn.Module` architectures (`WAMDualSystem`, `WAMTriSystem`,
    `VLASystem`, …) accept and return only tensors (and frozen dataclass contracts).
    **Boundary clarification (important):** the PreProcessor chain owns video decoding, coordinate
@@ -64,7 +68,7 @@ autonomous-driving VLA/WAM suite by reusing:
 4. **Composable Hydra Configs + Self-Contained Checkpoints.** Keep Hydra composition during
    development. On startup, rank 0 resolves all interpolations and saves the fully-resolved config
    into **every checkpoint directory as `config.yaml`** (filename unchanged — `deploy/model_loader.py`
-   and 90+ tests depend on it), plus `git_meta.json` and normalization statistics (§5.2).
+   and the pytest suite depend on it), plus `git_meta.json` and normalization statistics (§5.2).
 5. **Backward Compatibility with OpenWAM Core.** `dual_system` (3 variants), `tri_system`,
    `single_system` (vanilla/moe), `vla` (oftp/pi/groot), all video backbones, all visual encoders,
    the Qwen3-VL backbone, the deploy self-contained checkpoint contract
@@ -109,7 +113,7 @@ OpenWAM/
 │   └── deploy.yaml                           # [existing]
 ├── openwam/
 │   ├── contracts/                            # [NEW]
-│   │   ├── config_schema.py                  # typed dataclasses for builder inputs (per-YAML-block)
+│   │   ├── config_schema.py                  # typed dataclasses validating new YAML blocks (connector:, preprocessor chain)
 │   │   ├── data_contract.py                  # PipelineContext, ModelInputBatch
 │   │   ├── model_contract.py                 # BackboneOutput, ConnectorOutput, ActionHeadOutput, SystemOutput
 │   │   └── collate.py                        # PipelineContext -> ModelInputBatch collation
@@ -120,7 +124,7 @@ OpenWAM/
 │   │   ├── lance_dataset.py                  # [NEW] Lance slice / tag / filter-pushdown reader (Track B)
 │   │   ├── clip_reader.py                    # [NEW] raw multi-cam MP4 + topics parquet reader
 │   │   ├── mixture.py                        # [existing; upgraded to cross-format]
-│   │   ├── builder.py                        # [NEW] explicit match-case dataset factory (replaces dataloader/registry.py)
+│   │   ├── registry.py                       # [existing, kept] Track B readers register here (§1.3 rule 1)
 │   │   └── preprocessors/                    # [NEW]
 │   │       ├── base.py                       # BasePreprocessor, PreProcessorPipeline, InferenceProcessorPipeline
 │   │       ├── video_decoder.py              # MultiCamVideoDecoder
@@ -129,9 +133,6 @@ OpenWAM/
 │   │       ├── image_processor.py            # MultiViewImageProcessor
 │   │       └── prompt_processor.py           # VLAPromptTokenizeProcessor
 │   ├── model/
-│   │   ├── builder.py                        # [NEW] explicit factories: build_architecture / video_backbone /
-│   │   │                                     #   vlm_backbone / connector / action_head; hosts legacy
-│   │   │                                     #   resolve_architecture_config logic
 │   │   ├── architectures/
 │   │   │   ├── base.py                       # [existing] BaseArchitecture / BaseWAMArchitecture
 │   │   │   ├── dual_system/ tri_system/ single_system/   # [existing]
@@ -169,8 +170,9 @@ never a same-PR add+delete: (a) `configs/dataloader/robot/*.yaml` are **moves** 
 defaults and `mixture.yaml` must remap the Hydra package (`- dataloader/robot@dataloader: robotwin`,
 `- robot/agibotworld@datasets.agibotworld`, …) so `cfg.dataloader.*` — and therefore
 `build_dataset(cfg.dataloader)` and every reader — stay source-compatible; a regression test
-asserts the composed config tree is byte-identical before/after the move. (b) Removal targets at
-end of plan: the five registry files, and `dataloader/transforms/` once preprocessors reach parity.
+asserts the composed config tree is byte-identical before/after the move. (b) Removal target at
+end of plan: `dataloader/transforms/` once preprocessors reach parity. The five registry files are
+retained (§1.3 rule 1) and are **not** removal targets.
 
 ---
 
@@ -543,24 +545,24 @@ class SystemOutput:
 
 ---
 
-## 4. Explicit Typed Factories & Config Freezing
+## 4. Component Wiring & Config Freezing
 
-### 4.1 Builders
+### 4.1 Component wiring (registry-based)
 
-- `openwam/model/builder.py`: `build_architecture(cfg)` (match on `framework`+`variant`),
-  `build_video_backbone`, `build_vlm_backbone`, `build_connector`, `build_action_backbone`.
-  The action factory is **single** — WAM ActionDiT and the VLA heads (MLP / FlowMatching /
+- Instantiation routes through the **existing decorator registries** (§1.3 rule 1): architectures
+  via `model/architectures/registry.py`, video/vlm backbones via their registries, datasets via
+  `dataloader/registry.py`. New component classes join the same pattern — connectors register
+  alongside the architectures, preprocessors get a registry in `dataloader/preprocessors/` (or
+  entries in `dataloader/registry.py`) following the same decorator pattern.
+- The action config group stays **single** — WAM ActionDiT and the VLA heads (MLP / FlowMatching /
   LayerwiseFM) are one concept, share one config group (`configs/model/action_backbone/`,
   mirroring the code layout `model/action_backbone/` incl. `vla_heads/`), and dispatch on the
   existing `action_model_type` discriminator; in-file block keys (`action_head:` in `vla.yaml`,
   `action_backbone:` in `dual_system.yaml`) keep their names for config compatibility.
-  New YAML blocks (`connector:`, action configs) get dataclasses in `contracts/config_schema.py`;
-  validate at build time with `OmegaConf.structured(...)` — schema errors fail fast, not at forward.
-  **Scope control**: full DictConfig→dataclass conversion is *not* a goal; only the new blocks and
-  the architectures' top-level params are typed.
-- `openwam/dataloader/builder.py`: match on `dataloader.type` (`mixture`, `driving_clip`,
-  `<lerobot_name>`, …) and `dataloader.preprocessors.chain`.
-- Anti-pattern example (forbidden): string-keyed `build_from_cfg`.
+- New YAML blocks (`connector:`, action configs, preprocessor chain) get dataclasses in
+  `contracts/config_schema.py`; validate at build time with `OmegaConf.structured(...)` — schema
+  errors fail fast, not at forward. **Scope control**: full DictConfig→dataclass conversion is
+  *not* a goal; only the new blocks and the architectures' top-level params are typed.
 
 ### 4.2 Config freezing (`train/config_freezer.py`)
 
@@ -581,11 +583,11 @@ class SystemOutput:
 ### 4.3 Legacy checkpoint compatibility (normative)
 
 A checkpoint saved by current OpenWAM contains `config.yaml` with
-`model.architecture.{framework,variant}` and registry-era keys. The new
-`build_architecture` **must** load these via the preserved
-`resolve_architecture_config` mapping — old checkpoints keep training (finetune/resume via
-`train/utils/ckpt_model_loader.py`) and deploying with zero migration. This is a standing test:
-"load a golden legacy checkpoint dir" runs in CI from Phase 1 onward.
+`model.architecture.{framework,variant}` and registry-era keys. These keep loading through the
+**unchanged** `model/architectures/registry.py::resolve_architecture_config` mapping — old
+checkpoints keep training (finetune/resume via `train/utils/ckpt_model_loader.py`) and deploying
+with zero migration. This is a standing test: "load a golden legacy checkpoint dir" runs in CI
+from Phase 1 onward.
 
 ---
 
@@ -704,8 +706,8 @@ as today — it is the model-side half of the R2 boundary.
 
 `dual_system` (joint_cross_attn / joint_self_attn / idm), `tri_system`, `single_system`
 (vanilla / moe) keep their block-level logic; the refactor is contract-shaped (batch in,
-`SystemOutput` out) and factory-shaped (§4.1). `action_backbone` (ActionDiT / shared) and
-`video_backbone` are untouched internally.
+`SystemOutput` out) and component wiring stays registry-based (§4.1). `action_backbone`
+(ActionDiT / shared) and `video_backbone` are untouched internally.
 
 **Heterogeneous multi-cam visual path (normative).** When the batch carries
 `pixel_values_by_cam` (standard_tensor mode), the visual-encoder wrapper encodes each camera at
@@ -843,8 +845,8 @@ statistics close the reproducibility loop.
 ### 8.1 Deploy stack — contract unchanged
 
 `deploy/` (WebSocket policy server, executors, dit-cache, obs_preprocess, self-contained loader)
-keeps its wire protocol and checkpoint contract. Changes are internal only: model construction
-routes through the new builder; preprocessing parity comes from
+keeps its wire protocol and checkpoint contract. Changes are internal only: model construction is
+unchanged (registry-based, §4.1); preprocessing parity comes from
 `InferenceProcessorPipeline.from_checkpoint` (§5.3); normalizer attach path unchanged.
 
 ### 8.2 Stubs (`openwam/interfaces/`)
@@ -882,15 +884,16 @@ Convention (adopted from starVLA): every new model/processor module is runnable 
 
 | Phase | Scope | Acceptance |
 |---|---|---|
-| P0 | Baseline freeze: full pytest suite green snapshot recorded | suite green, snapshot stored |
-| P1 | `contracts/` + builders (`model/builder.py`, `dataloader/builder.py`) + `config_freezer.py` + legacy-compat tests; deploy loader routes through new builder | all existing tests green; **legacy golden checkpoint loads**; `config.yaml` now fully resolved |
+| P0 | Baseline freeze on the post-refactor suite (2026-11 tests round: mirror-tree reorg, merged/parametrized cases, deduped setup, docker & robotics-dataset suites dropped — 87 files / ~1.1k cases): full pytest green snapshot recorded | suite green, snapshot stored |
+| P1 | `contracts/` (incl. `config_schema.py`) + `config_freezer.py` + legacy-compat tests; deploy loader switches to the frozen resolved config | all existing tests green; **legacy golden checkpoint loads**; `config.yaml` now fully resolved |
 | P2 | PreProcessor chain + Track B datasets + `MixtureDataset` cross-format + `contracts/collate.py`; Track A adapter; `configs/dataloader/` reorg into `robot/` + `driving/` subgroups (Hydra package remap, cfg-tree regression test) | Track A runs through the new chain with **bit-identical loss** to transforms path on a fixed seed (parity gate); composed `cfg` tree unchanged by the config move; transforms package deleted at gate pass |
 | P3 | VLASystem absorption (connectors) + FAST vocab path + co-training rules + RTC training config | `vla.yaml` variants reproduce prior losses; smoke_test covers all connectors; co-training fail-fast validation tested |
 | P4 | FSDP runner + checkpoint manager unification + `lr_map` + EMA | hybrid-shard 8-GPU smoke vs DeepSpeed reference: loss curves match within tolerance on fixed seed; resume from mid-epoch checkpoint restores step & data position deterministically |
 | P5 | Driving chain hardening: ingest tools, time-sync defaults (O1), optional latent cache (O2), calibration flow | driving smoke run on sample clips; sync-gate unit tests with synthetic jitter |
 | P6 | Deploy/eval integration: `from_checkpoint` pipeline in deploy, ZMQ eval stub, TRT stubs | deploy of a driving checkpoint end-to-end in the existing server harness |
 
-Registry/transforms deletions happen only at the phase gates noted; each deletion is its own PR.
+The transforms-package deletion happens only at the phase gate noted (P2); the registries are
+retained (§1.3 rule 1). Each deletion is its own PR.
 
 ---
 
@@ -898,7 +901,7 @@ Registry/transforms deletions happen only at the phase gates noted; each deletio
 
 | Artifact | Old | New | Rule |
 |---|---|---|---|
-| Checkpoint `config.yaml` | registry-era keys | resolved + same filename | new builder reads old keys (§4.3); new keys ignored by old code paths |
+| Checkpoint `config.yaml` | registry-era keys | resolved + same filename | existing registry loader reads old keys unchanged (§4.3); new keys ignored by old code paths |
 | Normalization stats | `normalization_stats.npy` (`{joint, eef}`) | `dataset_statistics.json` | loader dual-reads both |
 | `action_lr`/`video_lr` | flat keys | `lr_map` prefix table | both accepted; flat keys map to two prefixes |
 | `freeze:` list | dotted paths | same semantics + FSDP ignore | unchanged |
@@ -911,7 +914,7 @@ Registry/transforms deletions happen only at the phase gates noted; each deletio
 1. **Fact fixes**: removed non-existent `presets/fast.env` / "RBA" (D5); VLASystem re-scoped from
    "build" to "absorb" (the port already landed upstream); `single_system` added back to scope.
 2. **D1**: directory plan changed from renames (`models/`, `dataset/`, `engine/`) to additive
-   subpackages — ~200-file import churn and a 90-test regression traded for zero.
+   subpackages — ~200-file import churn and a full-suite regression traded for zero.
 3. **Contracts**: added calibration/timestamps, robot-domain mapping, WAM-side prompt & video
    fields; clarified the GPU-encoder boundary (latents/text-embeddings are model-side, never
    dataloader-side).
@@ -927,7 +930,7 @@ Registry/transforms deletions happen only at the phase gates noted; each deletio
 8. Added §4.3 legacy compatibility (normative), §10 phase plan with parity gates, §11 compat
    matrix, §13 open items.
 9. Review round 2 — config layout: `action_head/` merged into `action_backbone/` (one concept,
-   one factory, mirrors code layout); `configs/dataloader/` split into `robot/` and `driving/`
+   one config group, mirrors code layout); `configs/dataloader/` split into `robot/` and `driving/`
    subgroups (driving expected to scale to hundreds), with Hydra package remap keeping
    `cfg.dataloader` stable.
 10. Review round 3 — contracts clarity: `PipelineContext` fields annotated with design intent +
@@ -956,6 +959,16 @@ Registry/transforms deletions happen only at the phase gates noted; each deletio
     `last_hidden_state` + `hidden_states: Optional[List[Tensor]]` (`hidden_states[-1]`
     aliases `last_hidden_state`) replace the unrelatedly-named context_tokens /
     all_hidden_states pair.
+14. Review round 7 (2026-11-13) — **registry mechanism retained**: review found the five
+    decorator registries free of the debug/navigation pain that motivated the ban (static
+    import-time registration, one class per file, build-time failure, greppable call sites), so
+    §1.3 rule 1 is rewritten as "Registry-Based Instantiation (kept)"; the `model/builder.py` /
+    `dataloader/builder.py` replacements and the registry deletion targets are dropped, and new
+    component classes (connectors, preprocessors) register through the same pattern. Test-suite
+    references updated after the 2026-11 tests refactor round (mirror-tree reorg, suite merges +
+    parametrization, setup dedup, docker & robotics-dataset suites dropped, pruned to core
+    logic): stale "90+ tests" counts replaced and the P0 baseline pinned to the post-refactor
+    suite.
 
 ## 13. Open Items
 
