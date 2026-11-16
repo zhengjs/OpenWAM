@@ -372,6 +372,50 @@ calib.json
   化;memmap 既表达不了多字段、也无可版本语义。
 - **pkl 排除**:eager 全量载入、无 memmap、对象开销大、无版本化/随机访问,亿级不可行。
 
+### 6.3 断点续训(数据侧)
+
+训练中途中断后,依据最近 ckpt + 完整可恢复状态恢复到断点瞬间;恢复后数据流与"不中断连续
+训练"从断点起**逐字节一致**——这是"完整恢复"的唯一验收标准。**trainer 侧**的模型权重/
+optimizer/scheduler/RNG 恢复属 `spec_zh.md` §7(不在本文档);此处约定**数据侧需暴露的可恢复
+状态**及其确定性前提。
+
+**数据侧可恢复状态**:采样组件(`WeightAnnealingSampler`、`IterMixtureDataset`)实现
+`state_dict() -> dict` / `load_state_dict(dict)`,**命名与 torch 原生 ckpt 保存一致**
+(`nn.Module.state_dict` / `optimizer.state_dict`);trainer 在 `save_full_states_for_resume=true`
+时与 model/optimizer 一样聚合进整份 ckpt(`ckpt["sampler"] = sampler.state_dict()`)。状态含:
+
+- **主游标**:iter-based 用 `global_step`;epoch-based 用 `epoch`(整数,`set_epoch` 已可确定性
+  重建 index map)。
+- **样本游标**:`cursor[rank][D]` = 该 rank 从 dataset D 采过的次数。可由 `dataset_index
+  [0..step-1]` 重推,但**显式持久化**省去 O(step) 重放(便宜,推荐)。
+- **序列版本指针(offline)**:本次所用 `dataset_index` / `sample_index` 的 **Lance 版本 id**。
+  resume 必须 checkout 同一版本,否则数据顺序的迭代改动会破坏一致性。online 只需存 `seed`
+  + `world_size`。
+
+**确定性 + 可寻址**(resume 正确性的前提):
+
+- `dataset_index[step] = f(seed, step, weights(alpha(step)))` —— 逐 step **O(1) 可算**,而非流
+  式递推。用 hash 化 RNG(`np.random.SeedSequence([seed, step])` / splitmix / philox)实现任意
+  step 直达:resume 无需回放 step 0..K-1,也无需存 RNG 内部状态。
+- `sample_index` 每 dataset 一条**不可变**序列(共享种子生成 / offline 落盘);游标 `c_D` 由
+  `dataset_index` 计数导出,rank r 第 j 次采 D 取 `S_D[r + j·world_size]`。
+
+**恢复流程**:
+
+1. `resume_ckpt_path` 载入模型权重 + optimizer/scheduler,并对采样组件调 `load_state_dict`
+   (`sampler.load_state_dict(ckpt["sampler"])`)恢复数据侧状态。
+2. 重建 sampler 并 seek 到断点:iter-based 由 `global_step` 直达 `dataset_index[step]`、由游标
+   直达各 `sample_index` 偏移;offline 按版本 id checkout 序列、按 `order_id` 偏移继续;
+   epoch-based 调 `set_epoch(epoch)`(种子确定性重建 index map)。
+3. 与 `finetune_ckpt_path` 区分:finetune 是 warm-start 权重,从 **step/epoch 0** 起,不恢复
+   数据游标、不 checkout 序列版本。
+
+**DDP**:各 rank 恢复各自游标;`global_step`/`epoch` 全 rank 一致(同读一份 ckpt)。world_size
+变化时的一致性归 O6(后期),当前 assume 固定 world_size。
+
+**验证(对等闸口)**:固定种子下,断点恢复后的前 N 个批与连续训练同一步区间**逐字节一致**
+(回归测试);直接复用 §6.2 的确定性生成,是"完整恢复"的硬门。
+
 ---
 
 ## 7. 未决 / 待确认
@@ -400,7 +444,7 @@ calib.json
 
 | 阶段 | 范围 | 验收 |
 |---|---|---|
-| P1 | `contracts/`(`data_contract.py` 含 `video_mask` 增补、`collate.py`、`config_schema.py` 数据块)+ 归一化统计双读(§2)+ Track A 适配器(§3)+ 遗留兼容(注册表不动、旧 checkpoint `config.yaml` 经 `resolve_architecture_config` 原样加载) | 现有 pytest 全绿;契约构建期校验快失败;Track A 适配器→空链→collate 与今日 transforms 路径**逐比特一致**(对等闸口回归);遗留黄金 checkpoint 可加载 |
-| P2 | Track B(`lance_dataset.py`+`clip_reader.py`)+ 预处理器链(`preprocessors/`)+ `MixtureDataset` 跨格式与权重退火(§6.1)+ iter-based 管线(§6.2,`IterMixtureDataset`+`WeightAnnealingSampler` 在线/离线)+ `configs/dataloader/` 重组(`robot/`+`driving/`+`preprocessors/`,Hydra 包重映射,cfg 树回归)+ `tools/ingest_lance.py` | 样本片段驾驶冒烟;配置移动不改变组合出的 cfg 树;合成抖动同步闸口单测;退火权重各 epoch 归一化且重分配守恒单测;iter-based 在线/离线采样序列冒烟;`transforms/` 删除在闸口通过后独立 PR |
+| P1 | `contracts/` 数据侧(`data_contract.py` 含 `video_mask` 增补、`config_schema.py` 数据块;**不含 `collate.py`**)+ 归一化统计双读(§2)+ 遗留兼容(注册表不动、旧 checkpoint `config.yaml` 经 `resolve_architecture_config` 原样加载) | 现有 pytest 全绿;契约构建期校验快失败;遗留黄金 checkpoint 可加载 |
+| P2 | `contracts/collate.py` + Track A 适配器(§3)+ 预处理器链(`preprocessors/`)+ Track B(`lance_dataset.py`+`clip_reader.py`)+ `MixtureDataset` 跨格式与权重退火(§6.1)+ iter-based 管线(§6.2,`IterMixtureDataset`+`WeightAnnealingSampler` 在线/离线)+ `configs/dataloader/` 重组(`robot/`+`driving/`+`preprocessors/`,Hydra 包重映射,cfg 树回归)+ `tools/ingest_lance.py` | 固定种子下 Track A 经新管线(适配器→空链→collate)运行,损失与 transforms 路径**逐比特一致**(对等闸口);配置移动不改变组合出的 cfg 树;合成抖动同步闸口单测;退火权重各 epoch 归一化且重分配守恒单测;iter-based 在线/离线采样序列冒烟;`transforms/` 删除在闸口通过后独立 PR |
 
 `transforms/` 删除仅发生在 P2 闸口通过后(独立 PR);五个注册表保留(§1.3 规则 1),不列入删除。
