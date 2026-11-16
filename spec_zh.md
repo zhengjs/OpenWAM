@@ -122,7 +122,7 @@ OpenWAM/
 │   ├── model/
 │   │   ├── architectures/
 │   │   │   ├── base.py                       # [已有] BaseArchitecture / BaseWAMArchitecture
-│   │   │   ├── dual_system/ tri_system/ single_system/   # [已���]
+│   │   │   ├── dual_system/ tri_system/ single_system/   # [已存在]
 │   │   │   ├── vla/                          # [已有] base_vla.py、qwen_pi/oft/groot(并入 §6.3 设计)
 │   │   │   └── connectors/                   # [新增] layerwise_hidden.py、last_hidden.py(joint_self_attn 留在 WAM)
 │   │   ├── action_backbone/
@@ -880,7 +880,7 @@ transforms 包删除仅发生在注明的阶段闸口(P2);注册表保留(§1.3 
 
 ---
 
-## 11. 配���兼容性矩阵
+## 11. 配置兼容性矩阵
 
 | 产物 | 旧 | 新 | 规则 |
 |---|---|---|---|
