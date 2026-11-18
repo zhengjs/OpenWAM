@@ -31,7 +31,7 @@ from test_vla_system_parity import _SeedableStubVLM  # noqa: E402
 
 def _add_lm_head(vlm: "_SeedableStubVLM") -> "_SeedableStubVLM":
     """Extend the parity stub with an LM head + token-sum CE (the contract the
-    real ``Qwen3VLVLABackbone.compute_vlm_loss`` implements)."""
+    real ``Qwen3VLBackbone.compute_vlm_loss`` implements)."""
     vlm.lm_head = torch.nn.Linear(HIDDEN, VOCAB)
 
     def compute_vlm_loss(vlm_inputs, labels=None):

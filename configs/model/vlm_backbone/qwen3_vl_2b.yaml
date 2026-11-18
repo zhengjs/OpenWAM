@@ -1,6 +1,9 @@
 name: qwen3_vl_2b
-# Qwen3-VL-2B understanding backbone (cfg.model.vlm_backbone.*); consumed only by
-# tri_system. 2B/4B etc. differ only by checkpoint_path.
+# Qwen3-VL understanding backbone (cfg.model.vlm_backbone.*); consumed only by
+# tri_system. 2B/4B etc. differ only by checkpoint_path. Same class as
+# qwen3_vl_vla — the knobs below select the tri prompt convention.
 checkpoint_path: /path/to/Qwen3-VL-2B-Instruct  # [Required]
 load_pretrained: true   # false = random-init (ablations / CPU smoke tests)
+prompt_style: processor_text   # processor(text=, images=) path
+add_generation_prompt: false
 max_length: 512         # processor max text length; longer inputs truncated

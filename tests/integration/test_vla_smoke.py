@@ -1,6 +1,6 @@
 """End-to-end smoke tests for the VLA architectures (CPU, stubbed VLM).
 
-The production path loads Qwen3-VL in ``Qwen3VLVLABackbone.__init__``; these
+The production path loads Qwen3-VL in ``Qwen3VLBackbone.__init__``; these
 tests monkeypatch ``base_vla.build_vlm_backbone`` with a ``_StubVLM`` exposing
 the :class:`VlmBackbone` contract. Each architecture then runs the production
 build path:
