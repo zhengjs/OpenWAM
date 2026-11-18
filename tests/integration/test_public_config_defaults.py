@@ -63,3 +63,51 @@ def test_mixture_hydra_source_overrides_remain_independent():
     assert not config.dataloader.datasets.oxe_droid.enabled
     assert config.dataloader.datasets.interndata_a1.total_hours == 1.5
     assert config.dataloader.datasets.agibotworld.total_hours is None
+
+
+# ------------------------------------------------------------ experiments ----
+# The +experiment workflow (configs/experiment/*.yaml): one yaml per person's
+# experiment, appended into train.yaml's defaults at launch
+# (`bash scripts/train.sh +experiment=<name>`).
+
+
+@pytest.mark.parametrize(
+    "name,variant,action_model_type",
+    [
+        ("qwen_oft", "oftp", "MLP"),
+        ("qwen_pi", "pi", "LayerwiseFM"),
+        ("qwen_groot", "groot", "DiT-B"),
+    ],
+)
+def test_vla_experiment_chains_compose(name, variant, action_model_type):
+    with initialize_config_dir(config_dir=str(REPO_ROOT / "configs"), version_base=None):
+        config = compose(config_name="train", overrides=[f"+experiment={name}"])
+
+    assert config.model.architecture.framework == "vla"
+    assert config.model.architecture.variant == variant
+    # variant and head type must stay paired (the build fail-fasts otherwise)
+    assert config.model.architecture.action_head.action_model_type == action_model_type
+    # VLA pairs with the raw-width RoboTwin dataloader
+    assert config.dataloader.unify_action is False
+    assert config.dataloader.type == "robotwin"
+    # training/project base blocks are inherited from train.yaml
+    assert config.training.learning_rate > 0
+    assert config.project.name == name + "_robotwin"
+
+
+def test_wam_experiment_chain_composes():
+    with initialize_config_dir(config_dir=str(REPO_ROOT / "configs"), version_base=None):
+        config = compose(config_name="train", overrides=["+experiment=wam"])
+
+    assert config.model.architecture.framework == "dual_system"
+    assert config.dataloader.type == "robotwin"
+    assert config.dataloader.unify_action is True
+    assert config.project.name == "wam_robotwin"
+
+
+def test_unknown_experiment_name_fails_fast():
+    from hydra.errors import MissingConfigException
+
+    with initialize_config_dir(config_dir=str(REPO_ROOT / "configs"), version_base=None):
+        with pytest.raises(MissingConfigException):
+            compose(config_name="train", overrides=["+experiment=no_such_experiment"])

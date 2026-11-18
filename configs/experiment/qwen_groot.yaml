@@ -1,0 +1,20 @@
+# @package _global_
+# Experiment: QwenGR00T chain (vla groot variant) — single-layer VLM hidden
+# state -> DiT-B flow matching. Dataloader: raw-width RoboTwin actions.
+#
+# Launch:  bash scripts/train.sh +experiment=qwen_groot
+# Create your own experiment by copying this file under configs/experiment/
+# (every experiment config needs `# @package _global_` at the top).
+defaults:
+  - override /model: vla
+  - override /dataloader: robot/robotwin_vla
+  - _self_
+
+model:
+  architecture:
+    variant: groot                  # pairs with action_model_type: DiT-B (fail-fast at build)
+    action_head:
+      action_model_type: DiT-B
+
+project:
+  name: qwen_groot_robotwin

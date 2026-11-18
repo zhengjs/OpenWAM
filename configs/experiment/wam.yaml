@@ -1,0 +1,14 @@
+# @package _global_
+# Experiment: WAM baseline chain — dual_system (video DiT + ActionDiT via
+# bridge cross-attention) on standard RoboTwin. Identical to the bare
+# `train.yaml` defaults; exists so every key model family has a named,
+# greppable launch entry.
+#
+# Launch:  bash scripts/train.sh +experiment=wam
+# Create your own experiment by copying any file under configs/experiment/
+# (every experiment config needs `# @package _global_` at the top).
+defaults:
+  - _self_
+
+project:
+  name: wam_robotwin

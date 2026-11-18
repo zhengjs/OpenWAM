@@ -1,0 +1,21 @@
+# @package _global_
+# Experiment: QwenPI chain (vla pi variant) — layer-wise VLM hidden states
+# cross into a LayerwiseFM flow-matching DiT (DiT depth = VLM layers).
+# Dataloader: raw-width RoboTwin actions.
+#
+# Launch:  bash scripts/train.sh +experiment=qwen_pi
+# Create your own experiment by copying this file under configs/experiment/
+# (every experiment config needs `# @package _global_` at the top).
+defaults:
+  - override /model: vla
+  - override /dataloader: robot/robotwin_vla
+  - _self_
+
+model:
+  architecture:
+    variant: pi                     # pairs with action_model_type: LayerwiseFM (fail-fast at build)
+    action_head:
+      action_model_type: LayerwiseFM
+
+project:
+  name: qwen_pi_robotwin

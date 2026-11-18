@@ -1,3 +1,9 @@
+# Primary launch config. Per-experiment entries live in configs/experiment/
+# (qwen_oft / qwen_pi / qwen_groot / wam, ...): start one with
+#   bash scripts/train.sh +experiment=<name>
+# Create your own experiment by adding a yaml there (`# @package _global_` +
+# a defaults list overriding model/dataloader); this file's groups and the
+# training/project blocks below are the shared base every experiment inherits.
 defaults:
   - model: dual_system            # [Optional]: dual_system(default), single_system, tri_system, vla
   - dataloader: robot/robotwin    # [Optional]: robot/robotwin(default), robot/mixture (four-source pretraining), robot/{ebench, robocasa365,
