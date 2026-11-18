@@ -18,7 +18,7 @@ import numpy as np
 import pytest
 import torch
 
-from openwam.model.vlm_backbone.fast_vocab import (
+from openwam.model.utils.fast_vocab import (
     FastVocabSpec,
     add_robot_action_tokens,
     ids_to_robot_action_segment,

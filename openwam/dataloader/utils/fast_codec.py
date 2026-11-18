@@ -1,7 +1,7 @@
 """FAST action codec: quantize → base-256 digit stream → BPE, and its inverse
 (spec_zh.md §6.4). Model-agnostic — lives on the data side because training
 encodes action chunks into FAST code sequences (labels) here, and deploy
-decodes generated codes back into trajectories; ``model/vlm_backbone/fast_vocab``
+decodes generated codes back into trajectories; ``model/utils/fast_vocab``
 owns only the LM-vocabulary segment those codes map onto.
 
 Round-trip guarantee: ``decode(encode(x))`` recovers the QUANTIZED action
