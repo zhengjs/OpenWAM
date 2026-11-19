@@ -5,19 +5,19 @@ Usage (every form composes the SAME merged config the matching launch would):
 
     # experiment yaml appended onto the DEFAULT train.yaml — this is the
     # +experiment=qwen_oft launch, validated before torchrun
-    python scripts/check_config.py configs/experiment/qwen_oft.yaml
+    python scripts/tools/check_config.py configs/experiment/qwen_oft.yaml
 
     # same, plus the overrides you plan to pass at launch
-    python scripts/check_config.py configs/experiment/qwen_oft.yaml training.batch_size=4 --out merged.yaml
+    python scripts/tools/check_config.py configs/experiment/qwen_oft.yaml training.batch_size=4 --out merged.yaml
 
     # the base config alone (no experiment appended)
-    python scripts/check_config.py configs/train.yaml
+    python scripts/tools/check_config.py configs/train.yaml
 
     # equivalent to the path form, written as raw overrides
-    python scripts/check_config.py +experiment=qwen_pi dataloader.num_frames=9
+    python scripts/tools/check_config.py +experiment=qwen_pi dataloader.num_frames=9
 
 Equivalences:
-    python scripts/check_config.py configs/experiment/qwen_oft.yaml [overrides]
+    python scripts/tools/check_config.py configs/experiment/qwen_oft.yaml [overrides]
         == bash scripts/train.sh +experiment=qwen_oft [overrides]
 
 Resolution rules (mirrors ``scripts/train.py``):
@@ -42,7 +42,7 @@ from pathlib import Path
 
 from omegaconf import OmegaConf
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]  # repo root (script lives in scripts/tools/)
 CONFIGS_DIR = PROJECT_ROOT / "configs"
 EXPERIMENTS_DIR = CONFIGS_DIR / "experiment"
 

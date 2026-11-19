@@ -1,4 +1,4 @@
-"""End-to-end tests for scripts/check_config.py (pre-launch config validation).
+"""End-to-end tests for scripts/tools/check_config.py (pre-launch config validation).
 
 Runs the script as a subprocess (same pattern as the fit_fast_tokenizer tool
 test): composes real hydra configs, so this pins the user-facing contract —
@@ -15,7 +15,7 @@ from pathlib import Path
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-SCRIPT = REPO_ROOT / "scripts" / "check_config.py"
+SCRIPT = REPO_ROOT / "scripts" / "tools" / "check_config.py"
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
