@@ -54,11 +54,11 @@ def list_registered_preprocessors() -> List[str]:
 
 
 def _register_builtins() -> None:
-    from openwam.dataloader.preprocessors.ego_state import EgoStateProcessor
-    from openwam.dataloader.preprocessors.multiview_image import MultiViewImageProcessor
-    from openwam.dataloader.preprocessors.topic_sync import TopicTimeSynchronizer
-    from openwam.dataloader.preprocessors.vla_prompt import VLAPromptTokenizeProcessor
-    from openwam.dataloader.preprocessors.video_decode import MultiCamVideoDecoder
+    from openwam.dataloader.preprocessors.ego_state_processor import EgoStateProcessor
+    from openwam.dataloader.preprocessors.multiview_image_processor import MultiViewImageProcessor
+    from openwam.dataloader.preprocessors.topic_sync_processor import TopicTimeSynchronizer
+    from openwam.dataloader.preprocessors.vla_prompt_processor import VLAPromptTokenizeProcessor
+    from openwam.dataloader.preprocessors.video_decode_processor import MultiCamVideoDecoder
 
     register_preprocessor("ego_state")(EgoStateProcessor)
     register_preprocessor("multiview_image")(MultiViewImageProcessor)

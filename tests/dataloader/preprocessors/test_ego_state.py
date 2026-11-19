@@ -5,7 +5,7 @@ import pytest
 import torch
 
 from openwam.contracts.data_contract import PipelineContext
-from openwam.dataloader.preprocessors.ego_state import EgoStateProcessor
+from openwam.dataloader.preprocessors.ego_state_processor import EgoStateProcessor
 
 
 def make_ctx(hist, traj=None, mask=None):
