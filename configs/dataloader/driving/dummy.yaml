@@ -1,0 +1,39 @@
+# Track B debug twin: synthetic storage + in-memory index, no lance package
+# and no real ingest needed (see openwam/dataloader/dataset/dummy_dataset.py).
+# Launch via scripts/tools/smoke_test.py (+experiment=wam_driving_smoke).
+#
+# The preprocessor chain below is the smoke-tuned variant of
+# preprocessors/driving_default.yaml: wam_canvas layout (the Wan-bridge path,
+# spec §6.2) at a %32 canvas, 5-frame windows (TI2V VAE needs (T-1)%4==0),
+# and topic_sync t_hist/rot6d matching the dummy stats (D_state=8 =
+# speed + yaw_rate + quat->rot6d).
+type: dummy_clip
+
+dataset_dir: outputs/dummy_driving_storage   # auto-generated when missing (raw_clips/clipA + stats)
+dataset_name: dummy_clip
+stats_path: ${dataloader.dataset_dir}/dataset_statistics.json
+
+num_samples: 4              # synthetic index rows (all over one generated clip)
+scene_tags: null
+
+preprocessor_chain:
+  chain:
+    - name: multicam_decode
+      kwargs:
+        color_jitter: null
+        lru_size: 4
+    - name: topic_sync
+      kwargs:
+        t_hist: 3                     # == dummy stats T_hist
+        stride_us: 50000
+        tolerance_us: null
+        overflow: nearest
+        rot6d_source: yaw_quat        # quat -> rot6d: D_state = 2 + 6 = 8
+    - name: ego_state
+      kwargs:
+        stats_path: ${dataloader.stats_path}
+    - name: multiview_image
+      kwargs:
+        mode: wam_canvas              # 3-cam composite canvas for the Wan bridge
+        camera_layout: [cam_front, cam_left, cam_rear]
+        canvas_size: [96, 128]        # [H, W], both %32 == 0

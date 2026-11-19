@@ -1,0 +1,24 @@
+# @package _global_
+# Experiment: WAM driving smoke — dual_system (Wan TI2V-5B + ActionDiT) on the
+# synthetic dummy_clip storage. Small canvas/window so a couple of steps run
+# anywhere; the real-data counterpart is driving/lance_clip + ingest_lance.
+#
+# Launch:  bash scripts/train.sh +experiment=wam_driving_smoke
+# Debug:   python scripts/tools/smoke_test.py [--steps 2] [--no-train]
+defaults:
+  - override /model: dual_system
+  - override /dataloader: driving/dummy
+  - _self_
+
+model:
+  architecture:
+    action_dim: 3                   # == dummy stats D_action
+    state_dim: 8                    # == dummy stats D_state (speed + yaw_rate + rot6d)
+
+training:
+  batch_size: 1
+  num_epochs: null
+  max_steps: 2
+
+project:
+  name: wam_driving_smoke

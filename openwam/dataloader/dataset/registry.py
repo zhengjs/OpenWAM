@@ -106,6 +106,10 @@ def _register_builtins():
     # Track B (driving): lazy lance import inside the module keeps this
     # registration safe on robot-only hosts.
     register_dataset("lance_clip")(AutoDrivingDataset)
+    # Track B debug twin: synthetic storage, in-memory index (no lance).
+    from openwam.dataloader.dataset.dummy_dataset import DummyDrivingDataset
+
+    register_dataset("dummy_clip")(DummyDrivingDataset)
 
 
 _register_builtins()
