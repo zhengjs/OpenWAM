@@ -1,10 +1,17 @@
 """Pre-launch config validation: merge a launch config the way training would
 and show / save the result, WITHOUT loading models or starting torchrun.
 
-Usage:
+Usage (every form composes the SAME merged config the matching launch would):
+    # experiment yaml appended onto the DEFAULT train.yaml — this is the
+    # +experiment=qwen_oft launch, validated before torchrun:
     python scripts/check_config.py configs/experiment/qwen_oft.yaml
+    #   == bash scripts/train.sh +experiment=qwen_oft
+    # same, plus the overrides you plan to pass at launch:
     python scripts/check_config.py configs/experiment/qwen_oft.yaml training.batch_size=4 --out merged.yaml
+    #   == bash scripts/train.sh +experiment=qwen_oft training.batch_size=4
+    # the base config alone (no experiment appended):
     python scripts/check_config.py configs/train.yaml
+    # equivalent to the path form, written as raw overrides:
     python scripts/check_config.py +experiment=qwen_pi dataloader.num_frames=9
 
 Resolution rules (mirrors ``scripts/train.py``):
