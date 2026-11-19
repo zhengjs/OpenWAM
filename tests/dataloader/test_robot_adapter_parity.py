@@ -22,7 +22,7 @@ import torch
 from PIL import Image
 
 from openwam.contracts.data_contract import ModelInputBatch
-from openwam.dataloader.robot_data_adapter import robot_sample_to_context
+from openwam.dataloader.utils.robot_data_adapter import robot_sample_to_context
 from openwam.dataloader.utils.normalization import NORM_EPS  # noqa: F401 (parity deps marker)
 from openwam.model.video_backbone.wan.preprocess import preprocess_image
 

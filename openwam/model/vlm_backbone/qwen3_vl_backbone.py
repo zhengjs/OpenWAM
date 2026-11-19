@@ -34,6 +34,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
+from transformers import AutoConfig, AutoProcessor, Qwen3VLForConditionalGeneration
 
 from openwam.model.vlm_backbone.base import VlmBackbone
 
@@ -68,13 +69,6 @@ class Qwen3VLBackbone(VlmBackbone):
         self._prompt_style = prompt_style
         self._add_generation_prompt = add_generation_prompt
         self._max_length = max_length
-        try:
-            from transformers import AutoConfig, AutoProcessor, Qwen3VLForConditionalGeneration
-        except ImportError as e:
-            raise ImportError(
-                "Qwen3VL requires transformers>=4.50 with Qwen3VLForConditionalGeneration. "
-                "Install via `pip install -U transformers`."
-            ) from e
 
         self.dtype = dtype
         self._checkpoint_path = checkpoint_path
