@@ -26,7 +26,7 @@ from pathlib import Path
 import numpy as np
 import pyarrow.parquet as pq
 
-from openwam.dataloader.libero import (
+from openwam.dataloader.dataset.libero_dataset import (
     ACTION_STATS_KEY,
     GRIPPER_CONVENTION,
     NORMALIZATION_STATS_FILENAME,

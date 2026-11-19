@@ -15,7 +15,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from openwam.dataloader.bases import LeRobotV3Reader
+from openwam.dataloader.utils.lerobot_v3_reader import LeRobotV3Reader
+from openwam.dataloader.utils.multi_lerobot_v3_reader import MultiLeRobotV3Reader
 from openwam.dataloader.utils.eef import EEF_POSE_FRAME_CONTRACT, LEFT_ARM_DIM_MASK, single_arm_20d
 from openwam.dataloader.utils.lerobotv3 import DataContractError
 from openwam.dataloader.utils.normalization import materialize_eef_stats

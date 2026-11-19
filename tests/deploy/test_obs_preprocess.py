@@ -212,7 +212,7 @@ def test_prompt_wrap_appends_instruction(prompt, expected):
 def test_prompt_wrap_matches_dataset_training_output():
     """Regression guard: deploy-side wrapping must equal the dataset's
     training-time prompt byte-for-byte."""
-    from openwam.dataloader.robotwin import _resolve_prompt
+    from openwam.dataloader.dataset.robotwin_dataset import _resolve_prompt
 
     base = "pick up the red bottle"
     training_output = _resolve_prompt(

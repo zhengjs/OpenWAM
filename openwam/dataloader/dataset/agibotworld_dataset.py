@@ -27,8 +27,9 @@ from typing import List
 
 import numpy as np
 
-from openwam.dataloader.bases import LeRobotV3Reader, MultiLeRobotV3Reader
-from openwam.dataloader.robocoin import GRIP_EXCLUDED_DIM_MASK, _build_dex_unify_map
+from openwam.dataloader.utils.lerobot_v3_reader import LeRobotV3Reader
+from openwam.dataloader.utils.multi_lerobot_v3_reader import MultiLeRobotV3Reader
+from openwam.dataloader.dataset.robocoin_dataset import GRIP_EXCLUDED_DIM_MASK, _build_dex_unify_map
 from openwam.dataloader.utils.lerobotv3 import DataContractError
 from openwam.dataloader.utils.normalization import (
     ROT6D_DIMS_EEF20,

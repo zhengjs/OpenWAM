@@ -20,7 +20,8 @@ from typing import Any, ClassVar, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from openwam.dataloader.bases import LeRobotV3Reader
+from openwam.dataloader.utils.lerobot_v3_reader import LeRobotV3Reader
+from openwam.dataloader.utils.multi_lerobot_v3_reader import MultiLeRobotV3Reader
 from openwam.dataloader.utils.normalization import (
     ROT6D_DIMS_ARM10,
     apply_normalization,

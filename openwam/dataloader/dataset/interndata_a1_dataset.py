@@ -27,8 +27,8 @@ from typing import Any, Dict, List, Tuple
 
 import numpy as np
 
-from openwam.dataloader.bases.lerobot_v3_reader import LeRobotV3Reader
-from openwam.dataloader.bases.multi_lerobot_v3_reader import MultiLeRobotV3Reader
+from openwam.dataloader.utils.lerobot_v3_reader import LeRobotV3Reader
+from openwam.dataloader.utils.multi_lerobot_v3_reader import MultiLeRobotV3Reader
 from openwam.dataloader.utils.eef import (
     ARM10_DIM,
     EEF_DIM,

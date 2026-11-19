@@ -381,7 +381,7 @@ def compute_multitask_robotwin_stats(
     Returns:
         Nested dict identical in shape to :func:`compute_normalization_stats`.
     """
-    from openwam.dataloader.robotwin import discover_robotwin_roots
+    from openwam.dataloader.dataset.robotwin_dataset import discover_robotwin_roots
 
     variant_list = ["clean_50", "randomized_500"] if variant == "both" else [variant]
 

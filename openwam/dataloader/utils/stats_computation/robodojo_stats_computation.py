@@ -19,7 +19,7 @@ import h5py
 import numpy as np
 from omegaconf import OmegaConf
 
-from openwam.dataloader.robodojo import (
+from openwam.dataloader.dataset.robodojo_dataset import (
     DEPLOY_ACTION_MODE,
     GRIPPER_CONVENTION,
     ROBODOJO_CONTRACT_ID,
@@ -34,7 +34,7 @@ from openwam.dataloader.robodojo import (
     resolve_robodojo_tasks,
     validate_robodojo_episode,
 )
-from openwam.dataloader.robodojo_contract import (
+from openwam.dataloader.dataset.robodojo_contract import (
     EEF20_DIM,
     ENDPOINT_LINK_NAME,
     REAL_ENDPOINT_NAME,

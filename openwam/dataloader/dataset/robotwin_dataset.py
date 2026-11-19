@@ -22,7 +22,7 @@ import numpy as np
 import torch
 from PIL import Image
 
-from openwam.dataloader.bases import BaseDataset
+from openwam.dataloader.dataset import BaseDataset
 from openwam.dataloader.utils.multiview import (
     DEFAULT_MULTIVIEW_CAMERA_LAYOUT,
     assemble_multiview_layout,

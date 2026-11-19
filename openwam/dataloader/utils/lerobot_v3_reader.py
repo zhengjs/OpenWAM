@@ -69,7 +69,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import torch
 
-from openwam.dataloader.bases.dataset import BaseDataset
+from openwam.dataloader.dataset.base_dataset import BaseDataset
 from openwam.dataloader.utils.multiview import assemble_multiview_layout
 from openwam.dataloader.utils.video_augment import VideoColorJitter, color_jitter_enabled
 from openwam.dataloader.utils.eef import (

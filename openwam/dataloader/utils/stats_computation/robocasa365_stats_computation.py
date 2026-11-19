@@ -10,7 +10,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
-from openwam.dataloader.robocasa365 import (
+from openwam.dataloader.dataset.robocasa365_dataset import (
     ACTION_DIM,
     ACTION_STATS_KEY,
     STATE_DIM,

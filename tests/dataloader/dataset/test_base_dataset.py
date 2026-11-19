@@ -13,7 +13,7 @@ def test_dataset_base_class_interface():
     """
     import inspect
 
-    from openwam.dataloader.bases import BaseDataset
+    from openwam.dataloader.dataset import BaseDataset
 
     abstracts = {
         name for name, method in inspect.getmembers(BaseDataset) if getattr(method, "__isabstractmethod__", False)
@@ -35,7 +35,7 @@ def test_all_datasets_inherit_base():
         MultiTaskRoboTwinDataset,
         RoboTwinDataset,
     )
-    from openwam.dataloader.bases import BaseDataset
+    from openwam.dataloader.dataset import BaseDataset
 
     for cls in [RoboTwinDataset, MultiTaskRoboTwinDataset]:
         assert issubclass(cls, BaseDataset), f"{cls.__name__} missing BaseDataset"

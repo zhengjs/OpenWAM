@@ -14,7 +14,7 @@ import pytest
 import torch
 
 from openwam.dataloader import registry as registry_mod
-from openwam.dataloader.mixture import MixtureDataset
+from openwam.dataloader.dataset.mixture_dataset import MixtureDataset
 from openwam.train.openwam_trainer import OpenWAMTrainer
 
 # ---------------------------------------------------------------------------

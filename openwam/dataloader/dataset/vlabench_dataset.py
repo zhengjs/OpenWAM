@@ -60,7 +60,8 @@ import numpy as np
 import pandas as pd
 import pyarrow.parquet as pq
 
-from openwam.dataloader.bases import LeRobotV3Reader
+from openwam.dataloader.utils.lerobot_v3_reader import LeRobotV3Reader
+from openwam.dataloader.utils.multi_lerobot_v3_reader import MultiLeRobotV3Reader
 from openwam.dataloader.utils.normalization import STAT_KEYS, apply_normalization
 from openwam.dataloader.utils.oxe_schema import euler7_action_to_arm10
 

@@ -36,7 +36,7 @@ import torch
 from torch.utils.data import Sampler
 
 from openwam.contracts.data_contract import PipelineContext
-from openwam.dataloader.bases import BaseDataset
+from openwam.dataloader.dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 

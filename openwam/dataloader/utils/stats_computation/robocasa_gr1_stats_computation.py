@@ -28,7 +28,7 @@ from typing import Iterable
 import numpy as np
 from omegaconf import OmegaConf
 
-from openwam.dataloader.robocasa_gr1 import (
+from openwam.dataloader.dataset.robocasa_gr1_dataset import (
     NORMALIZATION_STATS_FILENAME,
     STATS_SCHEMA_VERSION,
     MultiRoboCasaGR1Dataset,

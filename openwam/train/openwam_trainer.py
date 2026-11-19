@@ -238,7 +238,7 @@ class OpenWAMTrainer:
         optimizer, dataloader, scheduler = self.prepare_accelerate(optimizer, dataloader, scheduler)
 
         if self._run_seed is not None:
-            from openwam.dataloader.mixture import MixtureDataset
+            from openwam.dataloader.dataset.mixture_dataset import MixtureDataset
 
             if isinstance(self.dataset, MixtureDataset):
                 logger.info(
@@ -400,7 +400,7 @@ class OpenWAMTrainer:
         ``worker_init_fn`` so dataset-side randomness is reproducible across
         runs while keeping per-epoch / per-worker variation.
         """
-        from openwam.dataloader.mixture import MixtureDataset
+        from openwam.dataloader.dataset.mixture_dataset import MixtureDataset
 
         t = self.cfg.training
         shuffle = not isinstance(self.dataset, MixtureDataset)

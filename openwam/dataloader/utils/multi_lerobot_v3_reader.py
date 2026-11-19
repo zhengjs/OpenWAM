@@ -28,7 +28,7 @@ from typing import List
 
 import numpy as np
 
-from openwam.dataloader.bases.dataset import BaseDataset
+from openwam.dataloader.dataset.base_dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 

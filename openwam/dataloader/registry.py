@@ -15,7 +15,7 @@ Usage:
 
 from typing import Dict, Type
 
-from openwam.dataloader.bases import BaseDataset
+from openwam.dataloader.dataset import BaseDataset
 from openwam.dataloader.utils import get_cfg
 
 DATASET_REGISTRY: Dict[str, Type[BaseDataset]] = {}
@@ -74,19 +74,19 @@ def list_registered_datasets():
 
 def _register_builtins():
     """Register all built-in dataset classes."""
-    from openwam.dataloader.agibotworld import MultiAgiBotWorldDataset
-    from openwam.dataloader.ebench import EBenchDataset
-    from openwam.dataloader.interndata_a1 import InternDataA1Dataset
-    from openwam.dataloader.autodriving_dataset import AutoDrivingDataset
-    from openwam.dataloader.libero import LiberoDataset
-    from openwam.dataloader.mixture import MixtureDataset
-    from openwam.dataloader.oxe_droid import OxeDroidDataset
-    from openwam.dataloader.robocasa365 import MultiTaskRoboCasa365Dataset
-    from openwam.dataloader.robocasa_gr1 import MultiRoboCasaGR1Dataset
-    from openwam.dataloader.robocoin import MultiRobotCOINDataset
-    from openwam.dataloader.robodojo import MultiTaskRoboDojoDataset
-    from openwam.dataloader.robotwin import MultiTaskRoboTwinDataset
-    from openwam.dataloader.vlabench import VLABenchDataset
+    from openwam.dataloader.dataset.agibotworld_dataset import MultiAgiBotWorldDataset
+    from openwam.dataloader.dataset.ebench_dataset import EBenchDataset
+    from openwam.dataloader.dataset.interndata_a1_dataset import InternDataA1Dataset
+    from openwam.dataloader.dataset.autodriving_dataset import AutoDrivingDataset
+    from openwam.dataloader.dataset.libero_dataset import LiberoDataset
+    from openwam.dataloader.dataset.mixture_dataset import MixtureDataset
+    from openwam.dataloader.dataset.oxe_droid_dataset import OxeDroidDataset
+    from openwam.dataloader.dataset.robocasa365_dataset import MultiTaskRoboCasa365Dataset
+    from openwam.dataloader.dataset.robocasa_gr1_dataset import MultiRoboCasaGR1Dataset
+    from openwam.dataloader.dataset.robocoin_dataset import MultiRobotCOINDataset
+    from openwam.dataloader.dataset.robodojo_dataset import MultiTaskRoboDojoDataset
+    from openwam.dataloader.dataset.robotwin_dataset import MultiTaskRoboTwinDataset
+    from openwam.dataloader.dataset.vlabench_dataset import VLABenchDataset
 
     register_dataset("robotwin")(MultiTaskRoboTwinDataset)
     register_dataset("robodojo")(MultiTaskRoboDojoDataset)

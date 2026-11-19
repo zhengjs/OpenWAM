@@ -15,7 +15,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 
 # Reuse reader helpers to keep the scan and reader in sync.
-from openwam.dataloader.ebench import (
+from openwam.dataloader.dataset.ebench_dataset import (
     EBENCH_ACTION_KEYS,
     EBENCH_FINGER_GAP_TOLERANCE,
     EBENCH_GRIPPER_CMD_RANGE,

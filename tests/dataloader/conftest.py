@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 import torch
 
-from openwam.dataloader.bases import BaseDataset
+from openwam.dataloader.dataset import BaseDataset
 
 _CACHE_ROOT = Path(__file__).resolve().parent / ".cache"
 _CACHE_ROOT.mkdir(exist_ok=True)

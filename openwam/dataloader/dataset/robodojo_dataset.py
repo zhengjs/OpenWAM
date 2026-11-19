@@ -5,7 +5,7 @@ environment-origin-relative positions with world-frame wxyz orientations.
 RoboDojo_real records native per-arm robot-base poses and must not receive the
 simulation base transform. Dual-X5 constants and the env-origin → robot-base
 / EEF20 helpers live in
-``openwam.dataloader.robodojo_contract`` and
+``openwam.dataloader.dataset.robodojo_contract`` and
 ``openwam.dataloader.utils.poses``.  The Isaac eval runtime
 (XPolicyLab) keeps pinned copies of these contracts and must not import
 this package.
@@ -35,8 +35,8 @@ import numpy as np
 import torch
 from PIL import Image
 
-from openwam.dataloader.bases import BaseDataset
-from openwam.dataloader.robodojo_contract import (
+from openwam.dataloader.dataset import BaseDataset
+from openwam.dataloader.dataset.robodojo_contract import (
     EEF20_DIM,
     GRIPPER_CONVENTION,
     ROBODOJO_CONTRACT_ID,

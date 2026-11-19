@@ -11,7 +11,7 @@ import torch
 from torch.utils.data import DataLoader
 
 from openwam.contracts.data_contract import PipelineContext
-from openwam.dataloader.iter_mixture import IterMixtureDataset, WeightAnnealingSampler
+from openwam.dataloader.dataset.iter_mixture_dataset import IterMixtureDataset, WeightAnnealingSampler
 
 
 class Fake:

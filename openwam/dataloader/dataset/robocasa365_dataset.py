@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 import torch
 
-from openwam.dataloader.bases import BaseDataset
+from openwam.dataloader.dataset import BaseDataset
 from openwam.dataloader.utils.multiview import (
     assemble_multiview_layout,
     crop_and_resize,

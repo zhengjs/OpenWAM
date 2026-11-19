@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Sequence
 import numpy as np
 import torch
 
-from openwam.dataloader.bases import BaseDataset
+from openwam.dataloader.dataset import BaseDataset
 
 logger = logging.getLogger(__name__)
 

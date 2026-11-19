@@ -1,10 +1,11 @@
-"""Tests for openwam/dataloader/bases/multi_lerobot_v3_reader.py — MultiLeRobotV3Reader."""
+"""Tests for openwam/dataloader/utils/multi_lerobot_v3_reader.py — MultiLeRobotV3Reader."""
 
 from __future__ import annotations
 
 import pytest
 
-from openwam.dataloader.bases import MultiLeRobotV3Reader
+from openwam.dataloader.utils.lerobot_v3_reader import LeRobotV3Reader
+from openwam.dataloader.utils.multi_lerobot_v3_reader import MultiLeRobotV3Reader
 
 
 class TestMultiLeRobotV3Reader:

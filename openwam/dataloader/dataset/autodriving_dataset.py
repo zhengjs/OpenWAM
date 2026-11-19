@@ -27,7 +27,7 @@ import torch
 
 from openwam.contracts.config_schema import PreprocessorChainConfig
 from openwam.contracts.data_contract import PipelineContext
-from openwam.dataloader.bases import BaseDataset
+from openwam.dataloader.dataset import BaseDataset
 from openwam.dataloader.preprocessors import PreProcessorPipeline
 from openwam.dataloader.utils.driving_stats import load_dataset_statistics
 

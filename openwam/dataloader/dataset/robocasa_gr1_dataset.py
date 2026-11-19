@@ -30,7 +30,8 @@ from typing import Any, ClassVar, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from openwam.dataloader.bases import LeRobotV3Reader, MultiLeRobotV3Reader
+from openwam.dataloader.utils.lerobot_v3_reader import LeRobotV3Reader
+from openwam.dataloader.utils.multi_lerobot_v3_reader import MultiLeRobotV3Reader
 from openwam.dataloader.utils import get_cfg
 from openwam.dataloader.utils.normalization import STAT_KEYS, apply_normalization, load_stats_file
 

@@ -1,16 +1,16 @@
-from openwam.dataloader.bases import BaseDataset
-from openwam.dataloader.ebench import EBenchDataset, MultiEBenchDataset
+from openwam.dataloader.dataset import BaseDataset
+from openwam.dataloader.dataset.ebench_dataset import EBenchDataset, MultiEBenchDataset
 from openwam.dataloader.registry import (
     DATASET_REGISTRY,
     build_dataset,
     list_registered_datasets,
     register_dataset,
 )
-from openwam.dataloader.robodojo import (
+from openwam.dataloader.dataset.robodojo_dataset import (
     MultiTaskRoboDojoDataset,
     RoboDojoDataset,
 )
-from openwam.dataloader.robotwin import (
+from openwam.dataloader.dataset.robotwin_dataset import (
     EEF_ACTION_DIM,
     EEF_GRIPPER_INDICES,
     JOINT_GRIPPER_INDICES,

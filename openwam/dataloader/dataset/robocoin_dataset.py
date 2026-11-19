@@ -17,7 +17,8 @@ from typing import List
 
 import numpy as np
 
-from openwam.dataloader.bases import LeRobotV3Reader, MultiLeRobotV3Reader
+from openwam.dataloader.utils.lerobot_v3_reader import LeRobotV3Reader
+from openwam.dataloader.utils.multi_lerobot_v3_reader import MultiLeRobotV3Reader
 from openwam.dataloader.utils.eef import EEF_DIM as _ACTION_DIM
 from openwam.dataloader.utils.eef import eef14_to_eef20
 from openwam.dataloader.utils.normalization import (
