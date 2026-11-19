@@ -20,7 +20,7 @@ from PIL import Image
 
 from openwam.contracts.collate import collate_pipeline_contexts
 from openwam.contracts.data_contract import ModelInputBatch
-from openwam.dataloader.robot_data_adapter import robot_sample_to_context
+from openwam.dataloader.utils.robot_data_adapter import robot_sample_to_context
 from openwam.model.video_backbone.wan import encode as wan_encode
 from openwam.model.video_backbone.wan_backbone import Wan22Ti2v
 

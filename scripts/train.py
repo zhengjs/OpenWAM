@@ -115,7 +115,7 @@ def _train(cfg: DictConfig) -> None:
 
 def _train_openwam(cfg: DictConfig) -> None:
     """Original OpenWAM training path."""
-    from openwam.dataloader.registry import build_dataset
+    from openwam.dataloader.dataset.registry import build_dataset
     from openwam.train.openwam_trainer import OpenWAMTrainer
     from openwam.train.utils.seeding import seed_everything
 

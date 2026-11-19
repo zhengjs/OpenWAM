@@ -22,7 +22,7 @@ import numpy as np
 from PIL import Image, ImageEnhance
 
 from openwam.contracts.data_contract import PipelineContext
-from openwam.dataloader.clip_reader import ClipReader
+from openwam.dataloader.utils.clip_reader import ClipReader
 from openwam.dataloader.preprocessors.base import BasePreprocessor
 
 __all__ = ["MultiCamVideoDecoder"]

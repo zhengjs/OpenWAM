@@ -415,7 +415,7 @@ class MixtureDataset(BaseDataset):
 
         from concurrent.futures import ThreadPoolExecutor
 
-        from openwam.dataloader.registry import build_dataset
+        from openwam.dataloader.dataset.registry import build_dataset
         from openwam.dataloader.utils import get_cfg as _get
 
         def _copy_with_default(cfg, key, value):

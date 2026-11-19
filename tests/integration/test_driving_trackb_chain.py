@@ -9,7 +9,7 @@ import torch
 
 from openwam.contracts.config_schema import PreprocessorChainConfig, ProcessorSpec
 from openwam.contracts.data_contract import PipelineContext
-from openwam.dataloader.clip_reader import ClipReader
+from openwam.dataloader.utils.clip_reader import ClipReader
 from openwam.dataloader.preprocessors import PreProcessorPipeline
 from tests.integration.conftest_driving import build_synthetic_clip
 

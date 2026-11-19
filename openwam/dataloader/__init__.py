@@ -1,6 +1,6 @@
 from openwam.dataloader.dataset import BaseDataset
 from openwam.dataloader.dataset.ebench_dataset import EBenchDataset, MultiEBenchDataset
-from openwam.dataloader.registry import (
+from openwam.dataloader.dataset.registry import (
     DATASET_REGISTRY,
     build_dataset,
     list_registered_datasets,

@@ -23,7 +23,7 @@ from typing import Dict, List, Optional
 import numpy as np
 
 from openwam.contracts.data_contract import PipelineContext
-from openwam.dataloader.clip_reader import ClipReader
+from openwam.dataloader.utils.clip_reader import ClipReader
 from openwam.dataloader.preprocessors.base import BasePreprocessor
 from openwam.dataloader.utils.poses import quat_wxyz_to_rot6d
 

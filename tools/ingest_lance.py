@@ -31,7 +31,7 @@ import numpy as np
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from openwam.dataloader.clip_reader import ClipHandle  # noqa: E402
+from openwam.dataloader.utils.clip_reader import ClipHandle  # noqa: E402
 from openwam.dataloader.utils.poses import quat_wxyz_to_rot6d  # noqa: E402
 
 STAT_KEYS = ("min", "max", "q01", "q99", "mean", "std")

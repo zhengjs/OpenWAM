@@ -1,6 +1,6 @@
 """Preprocessor registry (spec_data_zh.md §5).
 
-Same decorator + ``from_config`` discipline as ``dataloader/registry.py``
+Same decorator + ``from_config`` discipline as ``dataloader/dataset/registry.py``
 (D1: registries are the instantiation path — no builders).
 """
 

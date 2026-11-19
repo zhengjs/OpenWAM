@@ -145,7 +145,7 @@ def main(cfg: DictConfig) -> None:
         dist.barrier()
 
     sys.path.insert(0, str(PROJECT_ROOT))
-    from openwam.dataloader.registry import build_dataset
+    from openwam.dataloader.dataset.registry import build_dataset
     from openwam.model.video_backbone.encoder import build_video_encoder
     from openwam.train.utils.seeding import dataloader_worker_init_fn, make_dataloader_generator
 
